@@ -173,15 +173,6 @@
         "mismatchToast": "A senha não corresponde"
       }
     },
-    "commercial": {
-      "title": "Licença Comercial",
-      "trialActive": "Teste: {{days}} dias, {{hours}} horas restantes",
-      "trialActiveDescription": "O uso comercial é gratuito durante o teste. Após o término, todos os recursos continuam funcionando — o uso pessoal permanece gratuito, apenas o uso comercial exigirá uma licença.",
-      "trialExpired": "Teste expirado",
-      "trialExpiredDescription": "O uso pessoal continua gratuito. O uso comercial requer uma licença.",
-      "subscriptionActive": "Assinado — plano {{plan}}",
-      "subscriptionActiveDescription": "Sua assinatura do Donut Browser está ativa. O uso comercial está licenciado enquanto seu plano estiver vigente."
-    },
     "advanced": {
       "title": "Avançado",
       "clearCache": "Limpar Todo o Cache de Versões",
@@ -1543,14 +1534,6 @@
     "acceptFailed": "Falha ao aceitar os termos",
     "tryAgain": "Tente novamente"
   },
-  "commercialTrial": {
-    "title": "Período de teste comercial expirado",
-    "description": "Seu período de teste comercial de 2 semanas terminou.",
-    "body": "Se você está usando o Donut Browser para fins comerciais, precisa adquirir uma licença comercial para continuar. Você ainda pode usá-lo gratuitamente para uso pessoal.",
-    "understandButton": "Entendi",
-    "failed": "Falha ao salvar a confirmação",
-    "tryAgain": "Tente novamente"
-  },
   "permissionDialog": {
     "titleMicrophone": "Acesso ao microfone necessário",
     "titleCamera": "Acesso à câmera necessário",
@@ -1868,7 +1851,6 @@
     "loggedOut": "Sessão encerrada",
     "signedOut": "Sem sessão",
     "signedOutDescription": "Entre para ativar sincronização na nuvem, perfis criptografados e recursos de equipe.",
-    "plan": "Plano: {{plan}} · {{period}}",
     "refresh": "Atualizar",
     "logout": "Sair",
     "signIn": "Entrar",
@@ -2012,10 +1994,7 @@
       "body": "O Donut Browser é de código aberto e gratuito.",
       "agree": "Entendi",
       "personalTitle": "Uso pessoal",
-      "personalDesc": "Gratuito para sempre.",
-      "commercialTitle": "Uso comercial",
-      "trialBadge": "2 semanas grátis",
-      "commercialDesc": "Gratuito durante uma avaliação de 2 semanas. Depois, um plano pago mantém o projeto ativo e próspero."
+      "personalDesc": "Gratuito para sempre."
     }
   }
 }

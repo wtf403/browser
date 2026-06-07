@@ -54,7 +54,6 @@ pub mod events;
 mod mcp_integrations;
 mod mcp_server;
 mod tag_manager;
-mod team_lock;
 mod version_updater;
 pub mod vpn;
 pub mod vpn_worker_runner;
@@ -2248,9 +2247,6 @@ pub fn run() {
       disconnect_vpn,
       get_vpn_status,
       list_active_vpn_connections,
-      // Team lock commands
-      team_lock::get_team_locks,
-      team_lock::get_team_lock_status,
       // Synchronizer commands
       synchronizer::start_sync_session,
       synchronizer::stop_sync_session,
@@ -2309,7 +2305,6 @@ mod tests {
       "update_extension",
       "set_extension_sync_enabled",
       "set_extension_group_sync_enabled",
-      "get_team_lock_status",
       "generate_sample_fingerprint",
       "cloud_get_wayfern_token",
       "cloud_refresh_wayfern_token",

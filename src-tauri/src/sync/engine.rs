@@ -294,7 +294,8 @@ impl SyncProgressTracker {
 
 /// Check if sync is configured (cloud or self-hosted)
 pub fn is_sync_configured() -> bool {
-  if crate::cloud_auth::CLOUD_AUTH.has_active_paid_subscription_sync() {
+  // Check if user is logged in (cloud sync) or has self-hosted sync configured
+  if crate::cloud_auth::CLOUD_AUTH.is_logged_in_sync() {
     return true;
   }
   let manager = SettingsManager::instance();
@@ -459,7 +460,6 @@ impl SyncEngine {
     }
 
     // Skip if profile is locked by another team member
-    if crate::team_lock::TEAM_LOCK
       .is_locked_by_another(&profile.id.to_string())
       .await
     {

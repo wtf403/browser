@@ -173,15 +173,6 @@
         "mismatchToast": "密码不匹配"
       }
     },
-    "commercial": {
-      "title": "商业许可",
-      "trialActive": "试用期：剩余 {{days}} 天 {{hours}} 小时",
-      "trialActiveDescription": "试用期内商业使用免费。试用期结束后，所有功能继续正常使用 — 个人使用仍然免费，只有商业使用需要许可证。",
-      "trialExpired": "试用期已过期",
-      "trialExpiredDescription": "个人使用仍然免费。商业使用需要许可证。",
-      "subscriptionActive": "已订阅 — {{plan}} 方案",
-      "subscriptionActiveDescription": "您的 Donut Browser 订阅已激活。在订阅有效期内允许商业使用。"
-    },
     "advanced": {
       "title": "高级",
       "clearCache": "清除所有版本缓存",
@@ -1543,14 +1534,6 @@
     "acceptFailed": "接受条款失败",
     "tryAgain": "请重试"
   },
-  "commercialTrial": {
-    "title": "商业试用期已过期",
-    "description": "你的 2 周商业试用期已结束。",
-    "body": "如果你将 Donut Browser 用于商业目的,需要购买商业许可证才能继续。你仍然可以免费用于个人用途。",
-    "understandButton": "我明白了",
-    "failed": "保存确认失败",
-    "tryAgain": "请重试"
-  },
   "permissionDialog": {
     "titleMicrophone": "需要麦克风访问权限",
     "titleCamera": "需要摄像头访问权限",
@@ -1868,7 +1851,6 @@
     "loggedOut": "已退出",
     "signedOut": "未登录",
     "signedOutDescription": "登录以启用云同步、加密配置文件和团队功能。",
-    "plan": "套餐：{{plan}} · {{period}}",
     "refresh": "刷新",
     "logout": "退出",
     "signIn": "登录",
@@ -2012,10 +1994,7 @@
       "body": "Donut Browser 是开源软件，可免费使用。",
       "agree": "我知道了",
       "personalTitle": "个人使用",
-      "personalDesc": "永久免费。",
-      "commercialTitle": "商业使用",
-      "trialBadge": "2 周免费",
-      "commercialDesc": "在 2 周评估期内免费。之后需要付费方案，这有助于本项目的持续维护与发展。"
+      "personalDesc": "永久免费。"
     }
   }
 }

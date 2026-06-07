@@ -173,15 +173,6 @@
         "mismatchToast": "La contraseña no coincide"
       }
     },
-    "commercial": {
-      "title": "Licencia Comercial",
-      "trialActive": "Prueba: {{days}} días, {{hours}} horas restantes",
-      "trialActiveDescription": "El uso comercial es gratuito durante la prueba. Al finalizar, todas las funciones siguen funcionando — el uso personal sigue siendo gratuito, solo el uso comercial requerirá una licencia.",
-      "trialExpired": "Prueba expirada",
-      "trialExpiredDescription": "El uso personal sigue siendo gratuito. El uso comercial requiere una licencia.",
-      "subscriptionActive": "Suscrito — plan {{plan}}",
-      "subscriptionActiveDescription": "Tu suscripción a Donut Browser está activa. El uso comercial está autorizado mientras tu plan esté vigente."
-    },
     "advanced": {
       "title": "Avanzado",
       "clearCache": "Limpiar Toda la Caché de Versiones",
@@ -1543,14 +1534,6 @@
     "acceptFailed": "Error al aceptar los términos",
     "tryAgain": "Por favor, inténtalo de nuevo"
   },
-  "commercialTrial": {
-    "title": "Periodo de prueba comercial expirado",
-    "description": "Tu periodo de prueba comercial de 2 semanas ha terminado.",
-    "body": "Si usas Donut Browser con fines comerciales, debes adquirir una licencia comercial para continuar. Puedes seguir usándolo de forma personal gratis.",
-    "understandButton": "Entendido",
-    "failed": "Error al guardar el reconocimiento",
-    "tryAgain": "Por favor, inténtalo de nuevo"
-  },
   "permissionDialog": {
     "titleMicrophone": "Se requiere acceso al micrófono",
     "titleCamera": "Se requiere acceso a la cámara",
@@ -2012,10 +1995,7 @@
       "body": "Donut Browser es de código abierto y de uso gratuito.",
       "agree": "Entendido",
       "personalTitle": "Uso personal",
-      "personalDesc": "Gratis para siempre.",
-      "commercialTitle": "Uso comercial",
-      "trialBadge": "2 semanas gratis",
-      "commercialDesc": "Gratis durante una evaluación de 2 semanas. Después, un plan de pago mantiene el proyecto en buen estado y próspero."
+      "personalDesc": "Gratis para siempre."
     }
   }
 }

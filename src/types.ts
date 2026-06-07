@@ -75,40 +75,6 @@ export interface SyncSettings {
   sync_token?: string;
 }
 
-export interface CloudUser {
-  id: string;
-  email: string;
-  plan: string;
-  planPeriod: string | null;
-  subscriptionStatus: string;
-  profileLimit: number;
-  cloudProfilesUsed: number;
-  proxyBandwidthLimitMb: number;
-  proxyBandwidthUsedMb: number;
-  proxyBandwidthExtraMb: number;
-  teamId?: string;
-  teamName?: string;
-  teamRole?: string;
-  // This device's position among the user's active devices (oldest = 1).
-  // Ordinal 1 / isPrimaryDevice === true is the only device that can run
-  // browser automation. Optional: older backends omit them.
-  deviceOrdinal?: number | null;
-  deviceCount?: number | null;
-  isPrimaryDevice?: boolean | null;
-}
-
-export interface ProfileLockInfo {
-  profileId: string;
-  lockedBy: string;
-  lockedByEmail: string;
-  lockedAt: string;
-  expiresAt?: string;
-}
-
-export interface CloudAuthState {
-  user: CloudUser;
-  logged_in_at: string;
-}
 
 export interface ProfileSyncStatusEvent {
   profile_id: string;

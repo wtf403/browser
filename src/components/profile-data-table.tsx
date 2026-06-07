@@ -68,11 +68,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useBrowserState } from "@/hooks/use-browser-state";
-import { useCloudAuth } from "@/hooks/use-cloud-auth";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useScrollFade } from "@/hooks/use-scroll-fade";
 import { useTableSorting } from "@/hooks/use-table-sorting";
-import { useTeamLocks } from "@/hooks/use-team-locks";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
 import {
   getBrowserDisplayName,
@@ -216,10 +214,6 @@ interface TableMeta {
     profileId: string,
     country: LocationItem,
   ) => Promise<void>;
-
-  // Team locks
-  isProfileLockedByAnother: (profileId: string) => boolean;
-  getProfileLockEmail: (profileId: string) => string | undefined;
 
   // Synchronizer
   getProfileSyncInfo: (profileId: string) =>
@@ -1194,9 +1188,6 @@ export function ProfilesDataTable({
 
   const { storedProxies } = useProxyEvents();
   const { vpnConfigs } = useVpnEvents();
-  const { user } = useCloudAuth();
-  const { isProfileLocked, getLockInfo } = useTeamLocks(user?.id);
-
   const [proxyOverrides, setProxyOverrides] = React.useState<
     Record<string, string | null>
   >({});
@@ -1857,11 +1848,6 @@ export function ProfilesDataTable({
       loadCountries,
       handleCreateCountryProxy,
 
-      // Team locks
-      isProfileLockedByAnother: isProfileLocked,
-      getProfileLockEmail: (profileId: string) =>
-        getLockInfo(profileId)?.lockedByEmail,
-
       // Synchronizer
       getProfileSyncInfo: getProfileSyncInfo ?? (() => undefined),
       onLaunchWithSync:
@@ -1922,8 +1908,6 @@ export function ProfilesDataTable({
       countries,
       loadCountries,
       handleCreateCountryProxy,
-      isProfileLocked,
-      getLockInfo,
       getProfileSyncInfo,
       onLaunchWithSync,
     ],
@@ -2125,16 +2109,11 @@ export function ProfilesDataTable({
             meta.isClient && meta.runningProfiles.has(profile.id);
           const isLaunching = meta.launchingProfiles.has(profile.id);
           const isStopping = meta.stoppingProfiles.has(profile.id);
-          const isLockedByAnother = meta.isProfileLockedByAnother(profile.id);
           const isSyncing = meta.syncStatuses[profile.id]?.status === "syncing";
           const canLaunch =
             meta.browserState.canLaunchProfile(profile) &&
-            !isLockedByAnother &&
             !isSyncing;
-          const lockEmail = meta.getProfileLockEmail(profile.id);
-          const tooltipContent = isLockedByAnother
-            ? meta.t("sync.team.cannotLaunchLocked", { email: lockEmail })
-            : meta.browserState.getLaunchTooltipContent(profile);
+          const tooltipContent = meta.browserState.getLaunchTooltipContent(profile);
 
           const handleProfileStop = async (profile: BrowserProfile) => {
             meta.setStoppingProfiles((prev: Set<string>) =>
@@ -2371,8 +2350,6 @@ export function ProfilesDataTable({
           const isStopping = meta.stoppingProfiles.has(profile.id);
           const isDisabled =
             isRunning || isLaunching || isStopping || isCrossOsBlocked;
-          const lockedEmail = meta.getProfileLockEmail(profile.id);
-          const isLocked = meta.isProfileLockedByAnother(profile.id);
 
           return (
             <div className="flex items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
@@ -2402,18 +2379,6 @@ export function ProfilesDataTable({
               >
                 {display}
               </button>
-              {isLocked && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <LuLock className="size-3 text-muted-foreground" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {meta.t("sync.team.profileLocked", { email: lockedEmail })}
-                  </TooltipContent>
-                </Tooltip>
-              )}
             </div>
           );
         },

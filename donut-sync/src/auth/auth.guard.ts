@@ -42,8 +42,8 @@ export class AuthGuard implements CanActivate {
         mode: "self-hosted",
         prefix: "",
         teamPrefix: null,
-        profileLimit: 0,
-        teamProfileLimit: 0,
+        profileLimit: 0, // Always unlimited
+        teamProfileLimit: 0, // Always unlimited
       } satisfies UserContext;
       return true;
     }
@@ -59,8 +59,8 @@ export class AuthGuard implements CanActivate {
           mode: "cloud",
           prefix: decoded.prefix || `users/${decoded.sub}/`,
           teamPrefix: decoded.teamPrefix || null,
-          profileLimit: decoded.profileLimit || 0,
-          teamProfileLimit: decoded.teamProfileLimit || 0,
+          profileLimit: 0, // Always unlimited
+          teamProfileLimit: 0, // Always unlimited
         } satisfies UserContext;
         return true;
       } catch (err) {

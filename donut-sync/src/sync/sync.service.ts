@@ -281,10 +281,7 @@ export class SyncService implements OnModuleInit {
     const key = this.scopeKey(ctx, dto.key);
     this.validateKeyAccess(ctx, key);
 
-    // Check profile limit for cloud users
-    if (ctx.mode === "cloud" && ctx.profileLimit > 0) {
-      await this.checkProfileLimit(ctx);
-    }
+    // Profile limit checks removed - unlimited profiles for all users
 
     const expiresIn = dto.expiresIn || 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
@@ -433,10 +430,7 @@ export class SyncService implements OnModuleInit {
     dto: PresignUploadBatchRequestDto,
     ctx: UserContext,
   ): Promise<PresignUploadBatchResponseDto> {
-    // Check profile limit for cloud users
-    if (ctx.mode === "cloud" && ctx.profileLimit > 0) {
-      await this.checkProfileLimit(ctx);
-    }
+    // Profile limit checks removed - unlimited profiles for all users
 
     const expiresIn = dto.expiresIn || 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
@@ -753,175 +747,8 @@ export class SyncService implements OnModuleInit {
     this.changeSubject.next(event);
   }
 
-  async cleanupExcessProfiles(
-    userId: string,
-    maxProfiles: number,
-  ): Promise<{ deletedProfiles: string[]; remaining: number }> {
-    const userPrefix = `users/${userId}/`;
-    const profilePrefix = `${userPrefix}profiles/`;
-
-    // List all profile directories
-    const profiles: { id: string; lastModified: Date }[] = [];
-    let continuationToken: string | undefined;
-
-    do {
-      const result = await this.s3Client.send(
-        new ListObjectsV2Command({
-          Bucket: this.bucket,
-          Prefix: profilePrefix,
-          Delimiter: "/",
-          MaxKeys: 1000,
-          ContinuationToken: continuationToken,
-        }),
-      );
-
-      if (result.CommonPrefixes) {
-        for (const cp of result.CommonPrefixes) {
-          if (!cp.Prefix) continue;
-          const profileId = cp.Prefix.replace(profilePrefix, "").replace(
-            /\/$/,
-            "",
-          );
-
-          // Get creation time from first object in the profile directory
-          const objects = await this.s3Client.send(
-            new ListObjectsV2Command({
-              Bucket: this.bucket,
-              Prefix: cp.Prefix,
-              MaxKeys: 1,
-            }),
-          );
-
-          const firstObj = objects.Contents?.[0];
-          profiles.push({
-            id: profileId,
-            lastModified: firstObj?.LastModified || new Date(0),
-          });
-        }
-      }
-
-      continuationToken = result.NextContinuationToken;
-    } while (continuationToken);
-
-    if (profiles.length <= maxProfiles) {
-      return { deletedProfiles: [], remaining: profiles.length };
-    }
-
-    // Sort newest first — delete newest excess profiles
-    profiles.sort(
-      (a, b) => b.lastModified.getTime() - a.lastModified.getTime(),
-    );
-
-    const excessCount = profiles.length - maxProfiles;
-    const toDelete = profiles.slice(0, excessCount);
-    const deletedProfiles: string[] = [];
-
-    for (const profile of toDelete) {
-      const prefix = `${profilePrefix}${profile.id}/`;
-
-      // Delete all objects under this profile
-      let delToken: string | undefined;
-      do {
-        const listResult = await this.s3Client.send(
-          new ListObjectsV2Command({
-            Bucket: this.bucket,
-            Prefix: prefix,
-            MaxKeys: 1000,
-            ContinuationToken: delToken,
-          }),
-        );
-
-        const objects = listResult.Contents || [];
-        if (objects.length > 0) {
-          const deleteObjects = objects
-            .filter((obj): obj is typeof obj & { Key: string } => !!obj.Key)
-            .map((obj) => ({ Key: obj.Key }));
-
-          if (deleteObjects.length > 0) {
-            await this.s3Client.send(
-              new DeleteObjectsCommand({
-                Bucket: this.bucket,
-                Delete: { Objects: deleteObjects, Quiet: true },
-              }),
-            );
-          }
-        }
-
-        delToken = listResult.NextContinuationToken;
-      } while (delToken);
-
-      // Create tombstone
-      const tombstoneKey = `${userPrefix}tombstones/profiles/${profile.id}`;
-      const tombstoneData = JSON.stringify({
-        prefix: `profiles/${profile.id}/`,
-        deleted_at: new Date().toISOString(),
-        reason: "excess_profile_cleanup",
-      });
-
-      await this.s3Client.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: tombstoneKey,
-          Body: tombstoneData,
-          ContentType: "application/json",
-        }),
-      );
-
-      deletedProfiles.push(profile.id);
-      this.logger.log(
-        `Cleaned up excess profile ${profile.id} for user ${userId}`,
-      );
-    }
-
-    // Report updated profile usage to backend
-    const remaining = profiles.length - deletedProfiles.length;
-    await this.reportProfileUsage(userId, remaining).catch((err) =>
-      this.logger.warn(`Failed to report usage after cleanup: ${err.message}`),
-    );
-
-    return { deletedProfiles, remaining };
-  }
-
-  /**
-   * Check if the user has reached their profile limit.
-   * Counts objects in the profiles/ prefix.
-   */
-  private async checkProfileLimit(ctx: UserContext): Promise<void> {
-    if (ctx.profileLimit <= 0) return; // 0 = unlimited
-
-    let count = 0;
-
-    const userResult = await this.s3Client.send(
-      new ListObjectsV2Command({
-        Bucket: this.bucket,
-        Prefix: `${ctx.prefix}profiles/`,
-        Delimiter: "/",
-      }),
-    );
-    count += userResult.CommonPrefixes?.length || 0;
-
-    if (ctx.teamPrefix && ctx.teamProfileLimit && ctx.teamProfileLimit > 0) {
-      const teamResult = await this.s3Client.send(
-        new ListObjectsV2Command({
-          Bucket: this.bucket,
-          Prefix: `${ctx.teamPrefix}profiles/`,
-          Delimiter: "/",
-        }),
-      );
-      const teamCount = teamResult.CommonPrefixes?.length || 0;
-      if (teamCount >= ctx.teamProfileLimit) {
-        throw new ForbiddenException(
-          `Team profile limit reached (${ctx.teamProfileLimit}). Ask the team owner to upgrade.`,
-        );
-      }
-    }
-
-    if (count >= ctx.profileLimit) {
-      throw new ForbiddenException(
-        `Profile limit reached (${ctx.profileLimit}). Upgrade your plan for more profiles.`,
-      );
-    }
-  }
+  // cleanupExcessProfiles method removed - profile limits are now unlimited
+  // checkProfileLimit method removed - profile limits are now unlimited
 
   /**
    * Count the number of distinct profile directories for a user.

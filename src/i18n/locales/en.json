@@ -173,15 +173,6 @@
         "mismatchToast": "Password does not match"
       }
     },
-    "commercial": {
-      "title": "Commercial License",
-      "trialActive": "Trial: {{days}} days, {{hours}} hours remaining",
-      "trialActiveDescription": "Commercial use is free during the trial. When it ends, all features keep working — personal use stays free, only commercial use will require a license.",
-      "trialExpired": "Trial expired",
-      "trialExpiredDescription": "Personal use remains free. Commercial use requires a license.",
-      "subscriptionActive": "Subscribed — {{plan}} plan",
-      "subscriptionActiveDescription": "Your Donut Browser subscription is active. Commercial use is licensed for the duration of your plan."
-    },
     "advanced": {
       "title": "Advanced",
       "clearCache": "Clear All Version Cache",
@@ -1543,14 +1534,6 @@
     "acceptFailed": "Failed to accept terms",
     "tryAgain": "Please try again"
   },
-  "commercialTrial": {
-    "title": "Commercial Trial Expired",
-    "description": "Your 2-week commercial trial period has ended.",
-    "body": "If you are using Donut Browser for business purposes, you need to purchase a commercial license to continue. You can still use it for personal use for free.",
-    "understandButton": "I Understand",
-    "failed": "Failed to save acknowledgment",
-    "tryAgain": "Please try again"
-  },
   "permissionDialog": {
     "titleMicrophone": "Microphone Access Required",
     "titleCamera": "Camera Access Required",
@@ -1868,7 +1851,6 @@
     "loggedOut": "Logged out",
     "signedOut": "Signed out",
     "signedOutDescription": "Sign in to enable cloud sync, encrypted profiles, and team features.",
-    "plan": "Plan: {{plan}} · {{period}}",
     "refresh": "Refresh",
     "logout": "Sign out",
     "signIn": "Sign in",
@@ -2012,10 +1994,7 @@
       "body": "Donut Browser is open source and free to use.",
       "agree": "I understand",
       "personalTitle": "Personal use",
-      "personalDesc": "Free forever.",
-      "commercialTitle": "Commercial use",
-      "trialBadge": "2 weeks free",
-      "commercialDesc": "Free for a 2-week evaluation. After that, a paid plan keeps the project maintained and thriving."
+      "personalDesc": "Free forever."
     }
   }
 }

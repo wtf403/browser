@@ -173,15 +173,6 @@
         "mismatchToast": "Le mot de passe ne correspond pas"
       }
     },
-    "commercial": {
-      "title": "Licence commerciale",
-      "trialActive": "Essai: {{days}} jours, {{hours}} heures restantes",
-      "trialActiveDescription": "L'utilisation commerciale est gratuite pendant l'essai. À l'expiration, toutes les fonctionnalités continuent de fonctionner — l'utilisation personnelle reste gratuite, seule l'utilisation commerciale nécessitera une licence.",
-      "trialExpired": "Essai expiré",
-      "trialExpiredDescription": "L'utilisation personnelle reste gratuite. L'utilisation commerciale nécessite une licence.",
-      "subscriptionActive": "Abonné — formule {{plan}}",
-      "subscriptionActiveDescription": "Votre abonnement Donut Browser est actif. L'usage commercial est licencié pendant toute la durée de votre formule."
-    },
     "advanced": {
       "title": "Avancé",
       "clearCache": "Effacer tout le cache des versions",
@@ -1543,14 +1534,6 @@
     "acceptFailed": "Échec de l'acceptation des conditions",
     "tryAgain": "Veuillez réessayer"
   },
-  "commercialTrial": {
-    "title": "Période d'essai commerciale expirée",
-    "description": "Votre période d'essai commercial de 2 semaines est terminée.",
-    "body": "Si vous utilisez Donut Browser à des fins professionnelles, vous devez acheter une licence commerciale pour continuer. Vous pouvez toujours l'utiliser gratuitement à des fins personnelles.",
-    "understandButton": "J'ai compris",
-    "failed": "Échec de l'enregistrement de la confirmation",
-    "tryAgain": "Veuillez réessayer"
-  },
   "permissionDialog": {
     "titleMicrophone": "Accès au microphone requis",
     "titleCamera": "Accès à la caméra requis",
@@ -1868,7 +1851,6 @@
     "loggedOut": "Déconnecté",
     "signedOut": "Déconnecté",
     "signedOutDescription": "Connectez-vous pour activer la synchronisation cloud, les profils chiffrés et les fonctionnalités d’équipe.",
-    "plan": "Plan : {{plan}} · {{period}}",
     "refresh": "Actualiser",
     "logout": "Se déconnecter",
     "signIn": "Se connecter",
@@ -2012,10 +1994,7 @@
       "body": "Donut Browser est open source et gratuit.",
       "agree": "J'ai compris",
       "personalTitle": "Usage personnel",
-      "personalDesc": "Gratuit à vie.",
-      "commercialTitle": "Usage commercial",
-      "trialBadge": "2 semaines gratuites",
-      "commercialDesc": "Gratuit pendant une évaluation de 2 semaines. Ensuite, un forfait payant permet de maintenir et de faire prospérer le projet."
+      "personalDesc": "Gratuit à vie."
     }
   }
 }
