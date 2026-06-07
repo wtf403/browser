@@ -3022,33 +3022,32 @@ pub async fn set_profile_sync_mode(
       .map_err(|e| format!("Failed to load settings: {e}"))?;
 
     if settings.sync_server_url.is_none() {
-        let _ = events::emit(
-          "profile-sync-status",
-          serde_json::json!({
-            "profile_id": profile_id,
-            "profile_name": profile.name,
-            "status": "error",
-            "error": "Sync server not configured. Please configure sync settings first."
-          }),
-        );
-        return Err(
-          "Sync server not configured. Please configure sync settings first.".to_string(),
-        );
-      }
+      let _ = events::emit(
+        "profile-sync-status",
+        serde_json::json!({
+          "profile_id": profile_id,
+          "profile_name": profile.name,
+          "status": "error",
+          "error": "Sync server not configured. Please configure sync settings first."
+        }),
+      );
+      return Err(
+        "Sync server not configured. Please configure sync settings first.".to_string(),
+      );
+    }
 
-      let token = manager.get_sync_token(&app_handle).await.ok().flatten();
-      if token.is_none() {
-        let _ = events::emit(
-          "profile-sync-status",
-          serde_json::json!({
-            "profile_id": profile_id,
-            "profile_name": profile.name,
-            "status": "error",
-            "error": "Sync token not configured. Please configure sync settings first."
-          }),
-        );
-        return Err("Sync token not configured. Please configure sync settings first.".to_string());
-      }
+    let token = manager.get_sync_token(&app_handle).await.ok().flatten();
+    if token.is_none() {
+      let _ = events::emit(
+        "profile-sync-status",
+        serde_json::json!({
+          "profile_id": profile_id,
+          "profile_name": profile.name,
+          "status": "error",
+          "error": "Sync token not configured. Please configure sync settings first."
+        }),
+      );
+      return Err("Sync token not configured. Please configure sync settings first.".to_string());
     }
   }
 
