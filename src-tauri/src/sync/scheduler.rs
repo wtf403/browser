@@ -268,6 +268,7 @@ impl SyncScheduler {
     for profile in sync_enabled_profiles {
       let profile_id = profile.id.to_string();
       let is_running = profile.process_id.is_some();
+      let should_wait = is_running; // Profile should wait if it's running
 
       // Track running state in the scheduler
       if is_running {

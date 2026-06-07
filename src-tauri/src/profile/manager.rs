@@ -92,13 +92,7 @@ impl ProfileManager {
 
     let launch_hook = Self::normalize_launch_hook(launch_hook)?;
 
-    // Sync cloud proxy credentials if the profile uses a cloud or cloud-derived proxy
-    if let Some(ref pid) = proxy_id {
-      if PROXY_MANAGER.is_cloud_or_derived(pid) || pid == crate::proxy_manager::CLOUD_PROXY_ID {
-        log::info!("Syncing cloud proxy credentials before profile creation");
-        CLOUD_AUTH.sync_cloud_proxy().await;
-      }
-    }
+    // Cloud proxy features removed - skip sync
 
     log::info!("Attempting to create profile: {name}");
 
