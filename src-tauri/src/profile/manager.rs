@@ -1,7 +1,6 @@
 use crate::api_client::is_browser_version_nightly;
 use crate::browser::{create_browser, BrowserType, ProxySettings};
 use crate::camoufox_manager::CamoufoxConfig;
-use crate::cloud_auth::CLOUD_AUTH;
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
 use crate::profile::types::{get_host_os, BrowserProfile, SyncMode};

@@ -18,7 +18,6 @@ use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 use crate::browser::ProxySettings;
-use crate::cloud_auth::CLOUD_AUTH;
 use crate::group_manager::GROUP_MANAGER;
 use crate::profile::{BrowserProfile, ProfileManager};
 use crate::proxy_manager::PROXY_MANAGER;
@@ -1146,6 +1145,7 @@ impl McpServer {
       },
       // Team lock tools
       McpTool {
+        name: "list_team_locks".to_string(),
         description: "List all active team profile locks. Requires team plan.".to_string(),
         input_schema: serde_json::json!({
           "type": "object",
@@ -1154,6 +1154,7 @@ impl McpServer {
         }),
       },
       McpTool {
+        name: "check_profile_lock".to_string(),
         description: "Check if a profile is locked by a team member. Requires team plan.".to_string(),
         input_schema: serde_json::json!({
           "type": "object",
@@ -1804,13 +1805,6 @@ impl McpServer {
         message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
       });
     }
-
-    // Team lock check
-      .await
-      .map_err(|e| McpError {
-        code: -32000,
-        message: e,
-      })?;
 
     // Get app handle to launch
     let inner = self.inner.lock().await;

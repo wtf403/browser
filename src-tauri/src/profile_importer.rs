@@ -503,11 +503,7 @@ impl ProfileImporter {
 
     let mapped = map_browser_type(browser_type);
 
-    if let Some(ref pid) = proxy_id {
-      if PROXY_MANAGER.is_cloud_or_derived(pid) || pid == crate::proxy_manager::CLOUD_PROXY_ID {
-        crate::cloud_auth::CLOUD_AUTH.sync_cloud_proxy().await;
-      }
-    }
+    // Cloud proxy features removed - skip sync
 
     let existing_profiles = self.profile_manager.list_profiles()?;
     if existing_profiles

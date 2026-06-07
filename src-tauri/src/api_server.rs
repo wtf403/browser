@@ -1729,10 +1729,6 @@ async fn run_profile(
     return Err(StatusCode::BAD_REQUEST);
   }
 
-  // Team lock check
-    .await
-    .map_err(|_| StatusCode::CONFLICT)?;
-
   let remote_debugging_port = {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
       .await
@@ -2029,8 +2025,8 @@ pub struct WayfernTokenResponse {
 async fn get_wayfern_token(
   State(_state): State<ApiServerState>,
 ) -> Result<Json<WayfernTokenResponse>, StatusCode> {
-  let token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-  Ok(Json(WayfernTokenResponse { token }))
+  // Cloud auth removed - always return None
+  Ok(Json(WayfernTokenResponse { token: None }))
 }
 
 #[utoipa::path(
@@ -2049,11 +2045,6 @@ async fn get_wayfern_token(
 async fn refresh_wayfern_token(
   State(_state): State<ApiServerState>,
 ) -> Result<Json<WayfernTokenResponse>, (StatusCode, String)> {
-  crate::cloud_auth::CLOUD_AUTH
-    .request_wayfern_token()
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-  let token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-  Ok(Json(WayfernTokenResponse { token }))
+  // Cloud auth removed - always return None
+  Ok(Json(WayfernTokenResponse { token: None }))
 }

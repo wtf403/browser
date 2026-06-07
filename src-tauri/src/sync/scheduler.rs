@@ -160,17 +160,6 @@ impl SyncScheduler {
     }
     drop(running);
 
-    // Check if locked by another device (profile in use remotely)
-      .is_locked_by_another(profile_id)
-      .await
-    {
-      log::debug!(
-        "Profile {} is locked on another device, treating as running",
-        profile_id
-      );
-      return true;
-    }
-
     false
   }
 
@@ -279,8 +268,6 @@ impl SyncScheduler {
     for profile in sync_enabled_profiles {
       let profile_id = profile.id.to_string();
       let is_running = profile.process_id.is_some();
-        .is_locked_by_another(&profile_id)
-        .await;
 
       // Track running state in the scheduler
       if is_running {
