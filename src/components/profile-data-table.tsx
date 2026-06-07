@@ -2111,9 +2111,9 @@ export function ProfilesDataTable({
           const isStopping = meta.stoppingProfiles.has(profile.id);
           const isSyncing = meta.syncStatuses[profile.id]?.status === "syncing";
           const canLaunch =
-            meta.browserState.canLaunchProfile(profile) &&
-            !isSyncing;
-          const tooltipContent = meta.browserState.getLaunchTooltipContent(profile);
+            meta.browserState.canLaunchProfile(profile) && !isSyncing;
+          const tooltipContent =
+            meta.browserState.getLaunchTooltipContent(profile);
 
           const handleProfileStop = async (profile: BrowserProfile) => {
             meta.setStoppingProfiles((prev: Set<string>) =>

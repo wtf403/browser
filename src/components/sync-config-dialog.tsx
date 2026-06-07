@@ -29,10 +29,7 @@ interface SyncConfigDialogProps {
   onClose: (loginOccurred?: boolean) => void;
 }
 
-export function SyncConfigDialog({
-  isOpen,
-  onClose,
-}: SyncConfigDialogProps) {
+export function SyncConfigDialog({ isOpen, onClose }: SyncConfigDialogProps) {
   const { t } = useTranslation();
 
   // Self-hosted state
@@ -169,9 +166,7 @@ export function SyncConfigDialog({
         ) : (
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="sync-server-url">
-                {t("sync.serverUrl")}
-              </Label>
+              <Label htmlFor="sync-server-url">{t("sync.serverUrl")}</Label>
               <Input
                 id="sync-server-url"
                 placeholder={t("sync.serverUrlPlaceholder")}

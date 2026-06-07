@@ -75,7 +75,6 @@ export interface SyncSettings {
   sync_token?: string;
 }
 
-
 export interface ProfileSyncStatusEvent {
   profile_id: string;
   status: "disabled" | "syncing" | "synced" | "error" | "pending";

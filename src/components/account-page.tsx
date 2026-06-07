@@ -3,10 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  LuEye,
-  LuEyeOff,
-} from "react-icons/lu";
+import { LuEye, LuEyeOff } from "react-icons/lu";
 import { LoadingButton } from "@/components/loading-button";
 import {
   AnimatedTabs,
@@ -31,11 +28,7 @@ interface AccountPageProps {
 
 type ConnectionStatus = "unknown" | "testing" | "connected" | "error";
 
-export function AccountPage({
-  isOpen,
-  onClose,
-  subPage,
-}: AccountPageProps) {
+export function AccountPage({ isOpen, onClose, subPage }: AccountPageProps) {
   const { t } = useTranslation();
 
   // Self-hosted server state. Loaded once when the dialog opens and persisted

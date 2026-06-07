@@ -121,15 +121,7 @@ export function ProfileSyncDialog({
         setIsSaving(false);
       }
     },
-    [
-      profile,
-      hasConfig,
-      hasE2ePassword,
-      canUseEncryption,
-      onSyncConfigOpen,
-      onClose,
-      t,
-    ],
+    [profile, hasConfig, hasE2ePassword, onSyncConfigOpen, onClose, t],
   );
 
   const handleSyncNow = useCallback(async () => {
