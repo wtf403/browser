@@ -776,6 +776,200 @@ async fn handle_http_via_socks4(
   Ok(hyper_response)
 }
 
+/// Handle plain HTTP requests through a SOCKS5 proxy with REMOTE DNS resolution.
+/// This is similar to curl --socks5-hostname, ensuring DNS queries go through the proxy.
+async fn handle_http_via_socks5(
+  req: Request<hyper::body::Incoming>,
+  upstream_url: &str,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+  // Extract domain for traffic tracking
+  let domain = req
+    .uri()
+    .host()
+    .map(|h| h.to_string())
+    .unwrap_or_else(|| "unknown".to_string());
+
+  // Parse upstream SOCKS5 proxy URL
+  let upstream = match Url::parse(upstream_url) {
+    Ok(url) => url,
+    Err(e) => {
+      log::error!("Failed to parse SOCKS5 proxy URL: {}", e);
+      let mut response = Response::new(Full::new(Bytes::from("Invalid proxy URL")));
+      *response.status_mut() = StatusCode::BAD_GATEWAY;
+      return Ok(response);
+    }
+  };
+
+  let socks_host = upstream.host_str().unwrap_or("127.0.0.1");
+  let socks_port = upstream.port().unwrap_or(1080);
+  let socks_addr = format!("{}:{}", socks_host, socks_port);
+
+  // Parse target from request URI
+  let target_uri = req.uri();
+  let target_host = target_uri.host().unwrap_or("localhost");
+  let target_port = target_uri.port_u16().unwrap_or(80);
+
+  // Connect to SOCKS5 proxy
+  let mut socks_stream = match TcpStream::connect(&socks_addr).await {
+    Ok(stream) => stream,
+    Err(e) => {
+      log::error!("Failed to connect to SOCKS5 proxy {}: {}", socks_addr, e);
+      let mut response = Response::new(Full::new(Bytes::from(format!(
+        "Failed to connect to SOCKS5 proxy: {}",
+        e
+      ))));
+      *response.status_mut() = StatusCode::BAD_GATEWAY;
+      return Ok(response);
+    }
+  };
+
+  // Use async-socks5 for SOCKS5 handshake with REMOTE DNS resolution
+  use async_socks5::{connect, AddrKind, Auth};
+
+  // Always use AddrKind::Domain to ensure remote DNS resolution (like curl --socks5-hostname)
+  let target = AddrKind::Domain(target_host.to_string(), target_port);
+
+  let auth_info: Option<Auth> = if !upstream.username().is_empty() {
+    Some(Auth {
+      username: upstream.username().to_string(),
+      password: upstream.password().unwrap_or("").to_string(),
+    })
+  } else {
+    None
+  };
+
+  // Perform SOCKS5 handshake
+  if let Err(e) = connect(&mut socks_stream, target, auth_info).await {
+    log::error!("SOCKS5 handshake failed: {}", e);
+    let mut response = Response::new(Full::new(Bytes::from(format!(
+      "SOCKS5 handshake failed: {}",
+      e
+    ))));
+    *response.status_mut() = StatusCode::BAD_GATEWAY;
+    return Ok(response);
+  }
+
+  // Now send the HTTP request through the SOCKS5 tunnel
+  let method = req.method().clone();
+  let uri = req.uri().clone();
+  let headers = req.headers().clone();
+  let body_bytes = match req.collect().await {
+    Ok(collected) => collected.to_bytes(),
+    Err(e) => {
+      log::error!("Failed to read request body: {}", e);
+      let mut response = Response::new(Full::new(Bytes::from("Failed to read request body")));
+      *response.status_mut() = StatusCode::BAD_REQUEST;
+      return Ok(response);
+    }
+  };
+
+  // Build HTTP request string
+  let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+  let mut http_request = format!("{} {} HTTP/1.1\r\n", method, path);
+  http_request.push_str(&format!("Host: {}\r\n", target_host));
+
+  for (name, value) in headers.iter() {
+    if name != "host" {
+      if let Ok(val_str) = value.to_str() {
+        http_request.push_str(&format!("{}: {}\r\n", name, val_str));
+      }
+    }
+  }
+
+  if !body_bytes.is_empty() {
+    http_request.push_str(&format!("Content-Length: {}\r\n", body_bytes.len()));
+  }
+
+  http_request.push_str("\r\n");
+
+  // Send HTTP request
+  if let Err(e) = socks_stream.write_all(http_request.as_bytes()).await {
+    log::error!("Failed to send HTTP request: {}", e);
+    let mut response = Response::new(Full::new(Bytes::from("Failed to send HTTP request")));
+    *response.status_mut() = StatusCode::BAD_GATEWAY;
+    return Ok(response);
+  }
+
+  if !body_bytes.is_empty() {
+    if let Err(e) = socks_stream.write_all(&body_bytes).await {
+      log::error!("Failed to send HTTP body: {}", e);
+      let mut response = Response::new(Full::new(Bytes::from("Failed to send HTTP body")));
+      *response.status_mut() = StatusCode::BAD_GATEWAY;
+      return Ok(response);
+    }
+  }
+
+  // Read HTTP response
+  let mut response_buffer = Vec::new();
+  let mut temp_buffer = [0u8; 8192];
+
+  loop {
+    match socks_stream.read(&mut temp_buffer).await {
+      Ok(0) => break, // EOF
+      Ok(n) => {
+        response_buffer.extend_from_slice(&temp_buffer[..n]);
+        // Check if we have a complete response (simple heuristic)
+        if response_buffer.len() > 4 {
+          let response_str = String::from_utf8_lossy(&response_buffer);
+          if response_str.contains("\r\n\r\n") {
+            // Check if we have Content-Length
+            if let Some(cl_pos) = response_str.to_lowercase().find("content-length:") {
+              if let Some(cl_end) = response_str[cl_pos..].find("\r\n") {
+                if let Ok(content_length) = response_str[cl_pos + 15..cl_pos + cl_end].trim().parse::<usize>() {
+                  let header_end = response_str.find("\r\n\r\n").unwrap() + 4;
+                  if response_buffer.len() >= header_end + content_length {
+                    break;
+                  }
+                }
+              }
+            } else if response_str.to_lowercase().contains("transfer-encoding: chunked") {
+              // For chunked encoding, wait for "0\r\n\r\n"
+              if response_str.ends_with("0\r\n\r\n") {
+                break;
+              }
+            } else {
+              // No Content-Length or Transfer-Encoding, assume complete after headers
+              break;
+            }
+          }
+        }
+      }
+      Err(e) => {
+        log::error!("Failed to read HTTP response: {}", e);
+        let mut response = Response::new(Full::new(Bytes::from("Failed to read HTTP response")));
+        *response.status_mut() = StatusCode::BAD_GATEWAY;
+        return Ok(response);
+      }
+    }
+  }
+
+  // Parse response
+  let response_str = String::from_utf8_lossy(&response_buffer);
+  let mut lines = response_str.lines();
+
+  let status_line = lines.next().unwrap_or("HTTP/1.1 502 Bad Gateway");
+  let status_code = status_line
+    .split_whitespace()
+    .nth(1)
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(502);
+
+  // Skip headers and get body
+  let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
+  let body = response_buffer[body_start..].to_vec();
+  let response_size = body.len() as u64;
+
+  // Track traffic
+  if let Some(tracker) = get_traffic_tracker() {
+    tracker.record_request(&domain, body_bytes.len() as u64, response_size);
+  }
+
+  let mut hyper_response = Response::new(Full::new(Bytes::from(body)));
+  *hyper_response.status_mut() = StatusCode::from_u16(status_code).unwrap();
+
+  Ok(hyper_response)
+}
+
 /// Handle plain HTTP requests through a Shadowsocks upstream.
 /// reqwest doesn't support SS natively, so we connect through the SS tunnel
 /// manually and forward the HTTP request/response.
@@ -927,7 +1121,7 @@ async fn handle_http(
 
   let should_bypass = bypass_matcher.should_bypass(&domain);
 
-  // Handle proxy types that reqwest doesn't support natively
+  // Handle proxy types that reqwest doesn't support natively or need remote DNS
   if !should_bypass {
     if let Some(ref upstream) = upstream_url {
       if upstream != "DIRECT" {
@@ -935,6 +1129,10 @@ async fn handle_http(
           match url.scheme() {
             "socks4" => {
               return handle_http_via_socks4(req, upstream).await;
+            }
+            "socks5" => {
+              // Use custom handler for SOCKS5 to ensure remote DNS resolution
+              return handle_http_via_socks5(req, upstream).await;
             }
             "ss" | "shadowsocks" => {
               return handle_http_via_shadowsocks(req, &url).await;
@@ -946,7 +1144,7 @@ async fn handle_http(
     }
   }
 
-  // Use reqwest for HTTP/HTTPS/SOCKS5 proxies
+  // Use reqwest for HTTP/HTTPS proxies
   use reqwest::Client;
 
   let client_builder = Client::builder();
