@@ -70,6 +70,9 @@ jobs:
           cp src-tauri/target/${{ matrix.target }}/release/donut-proxy src-tauri/binaries/donut-proxy-${{ matrix.target }}
           chmod +x src-tauri/binaries/donut-proxy-${{ matrix.target }}
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version ^2.0.0 --locked
+
       - name: Build Tauri app (unsigned)
         working-directory: ./src-tauri
         run: |
