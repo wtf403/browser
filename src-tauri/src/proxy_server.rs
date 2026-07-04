@@ -7,13 +7,13 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use regex_lite::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
@@ -21,9 +21,9 @@ use tokio::net::TcpStream;
 /// Combined read+write trait for tunnel target streams, allowing
 /// `handle_connect_from_buffer` to handle plain TCP, SOCKS, and
 /// Shadowsocks through the same bidirectional-copy path.
-trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}
+pub(crate) trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncStream for T {}
-type BoxedAsyncStream = Box<dyn AsyncStream>;
+pub(crate) type BoxedAsyncStream = Box<dyn AsyncStream>;
 use url::Url;
 
 enum CompiledRule {
@@ -326,19 +326,15 @@ async fn handle_connect(
         let port = upstream.port().unwrap_or(1080);
         let socks_addr = format!("{}:{}", host, port);
 
-        let username = upstream.username();
-        let password = upstream.password().unwrap_or("");
+        let (username, password) = upstream_userpass(&upstream);
+        let auth = (!username.is_empty()).then_some((username.as_str(), password.as_str()));
 
         match connect_via_socks(
           &socks_addr,
           target_host,
           target_port,
           scheme == "socks5",
-          if !username.is_empty() {
-            Some((username, password))
-          } else {
-            None
-          },
+          auth,
         )
         .await
         {
@@ -378,7 +374,12 @@ async fn connect_via_http_proxy(
 ) -> Result<TcpStream, Box<dyn std::error::Error>> {
   let proxy_host = upstream.host_str().unwrap_or("127.0.0.1");
   let proxy_port = upstream.port().unwrap_or(8080);
-  let mut stream = TcpStream::connect((proxy_host, proxy_port)).await?;
+  let mut stream = tokio::time::timeout(
+    UPSTREAM_DIAL_TIMEOUT,
+    TcpStream::connect((proxy_host, proxy_port)),
+  )
+  .await
+  .map_err(|_| format!("upstream proxy connect to {proxy_host}:{proxy_port} timed out"))??;
 
   // Add proxy authentication if provided
   let mut connect_req = format!(
@@ -386,10 +387,9 @@ async fn connect_via_http_proxy(
     target_host, target_port, target_host, target_port
   );
 
-  if !upstream.username().is_empty() {
+  let (username, password) = upstream_userpass(upstream);
+  if !username.is_empty() {
     use base64::{engine::general_purpose, Engine as _};
-    let username = upstream.username();
-    let password = upstream.password().unwrap_or("");
     let auth = general_purpose::STANDARD.encode(format!("{}:{}", username, password));
     connect_req.push_str(&format!("Proxy-Authorization: Basic {}\r\n", auth));
   }
@@ -399,13 +399,105 @@ async fn connect_via_http_proxy(
   stream.write_all(connect_req.as_bytes()).await?;
 
   let mut buffer = [0u8; 4096];
-  let n = stream.read(&mut buffer).await?;
+  let n = tokio::time::timeout(UPSTREAM_DIAL_TIMEOUT, stream.read(&mut buffer))
+    .await
+    .map_err(|_| "upstream proxy CONNECT response timed out")??;
   let response = String::from_utf8_lossy(&buffer[..n]);
 
   if response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200") {
     Ok(stream)
   } else {
     Err(format!("Upstream proxy CONNECT failed: {}", response).into())
+  }
+}
+
+/// Extract percent-decoded (username, password) from the upstream URL.
+///
+/// `url::Url::username()` / `Url::password()` return percent-encoded ASCII
+/// strings per the WHATWG spec. `build_proxy_url` on the producer side
+/// already percent-encodes the credentials with `urlencoding::encode`, so
+/// we must decode here — otherwise the upstream SOCKS5 / HTTP CONNECT
+/// receives `%40` instead of `@`, breaking RFC1929 user/password
+/// authentication or HTTP Basic-Auth
+fn upstream_userpass(upstream: &Url) -> (String, String) {
+  let username = urlencoding::decode(upstream.username())
+    .map(|cow| cow.into_owned())
+    .unwrap_or_default();
+  let password = urlencoding::decode(upstream.password().unwrap_or(""))
+    .map(|cow| cow.into_owned())
+    .unwrap_or_default();
+  (username, password)
+}
+
+/// Transparent AsyncRead/AsyncWrite wrapper that logs every read/write
+/// byte of the SOCKS5 handshake. Used only during the handshake — the
+/// inner stream is taken back via `into_inner` once the handshake
+/// completes, so the tunnel phase pays no overhead
+struct SocksHandshakeLogger<S> {
+  inner: S,
+  label: String,
+}
+
+impl<S> SocksHandshakeLogger<S> {
+  fn new(inner: S, label: String) -> Self {
+    Self { inner, label }
+  }
+
+  fn into_inner(self) -> S {
+    self.inner
+  }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for SocksHandshakeLogger<S> {
+  fn poll_read(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    buf: &mut ReadBuf<'_>,
+  ) -> Poll<io::Result<()>> {
+    let before = buf.filled().len();
+    let result = Pin::new(&mut self.inner).poll_read(cx, buf);
+    if let Poll::Ready(Ok(())) = &result {
+      let after = buf.filled().len();
+      if after > before {
+        let bytes = &buf.filled()[before..after];
+        log::trace!(
+          "[socks-handshake:{}] <- {} byte(s): {:02x?}",
+          self.label,
+          bytes.len(),
+          bytes
+        );
+      } else {
+        log::trace!("[socks-handshake:{}] <- EOF (peer closed)", self.label);
+      }
+    }
+    result
+  }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for SocksHandshakeLogger<S> {
+  fn poll_write(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    buf: &[u8],
+  ) -> Poll<io::Result<usize>> {
+    let result = Pin::new(&mut self.inner).poll_write(cx, buf);
+    if let Poll::Ready(Ok(n)) = &result {
+      log::trace!(
+        "[socks-handshake:{}] -> {} byte(s): {:02x?}",
+        self.label,
+        n,
+        &buf[..*n]
+      );
+    }
+    result
+  }
+
+  fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    Pin::new(&mut self.inner).poll_flush(cx)
+  }
+
+  fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    Pin::new(&mut self.inner).poll_shutdown(cx)
   }
 }
 
@@ -416,7 +508,9 @@ async fn connect_via_socks(
   is_socks5: bool,
   auth: Option<(&str, &str)>,
 ) -> Result<TcpStream, Box<dyn std::error::Error>> {
-  let mut stream = TcpStream::connect(socks_addr).await?;
+  let stream = tokio::time::timeout(UPSTREAM_DIAL_TIMEOUT, TcpStream::connect(socks_addr))
+    .await
+    .map_err(|_| format!("SOCKS upstream connect to {socks_addr} timed out"))??;
 
   if is_socks5 {
     // SOCKS5 connection using async_socks5
@@ -433,9 +527,52 @@ async fn connect_via_socks(
       password: pass.to_string(),
     });
 
-    connect(&mut stream, target, auth_info).await?;
-    Ok(stream)
+    let has_auth = auth_info.is_some();
+    log::trace!(
+      "[socks-handshake] dialing {} (target={}:{}, has_auth={})",
+      socks_addr,
+      target_host,
+      target_port,
+      has_auth
+    );
+
+    // Disable Nagle so the kernel doesn't further delay/coalesce the
+    // syscalls issued when BufStream flushes
+    let _ = stream.set_nodelay(true);
+
+    // BufStream wrapping is required: async_socks5 calls write_u8 for every
+    // single-byte SOCKS5 / RFC1929 field, and on a raw TcpStream each call
+    // becomes its own TCP segment. Some upstream SOCKS5 implementations
+    // treat such a "fragmented auth submission" as a misbehaving client
+    // and silently FIN instead of returning an RFC1929 status. BufStream
+    // coalesces those small writes into one syscall on flush — this is
+    // the usage pattern shown in the async_socks5 README
+    let label = format!("{socks_addr}->{target_host}:{target_port}");
+    let logged = SocksHandshakeLogger::new(stream, label);
+    let mut buffered = tokio::io::BufStream::new(logged);
+    let handshake = tokio::time::timeout(
+      UPSTREAM_DIAL_TIMEOUT,
+      connect(&mut buffered, target, auth_info),
+    )
+    .await;
+    // Unwrap the layered stream: BufStream → SocksHandshakeLogger → TcpStream
+    let stream = buffered.into_inner().into_inner();
+    match handshake {
+      Ok(Ok(_)) => {
+        log::trace!("[socks-handshake] handshake completed ok");
+        Ok(stream)
+      }
+      Ok(Err(e)) => {
+        log::trace!("[socks-handshake] handshake failed: {:?}", e);
+        Err(e.into())
+      }
+      Err(_) => {
+        log::trace!("[socks-handshake] handshake timed out");
+        Err("SOCKS5 upstream handshake timed out".into())
+      }
+    }
   } else {
+    let mut stream = stream;
     // SOCKS4 - simplified implementation
     let ip: std::net::IpAddr = target_host.parse()?;
 
@@ -509,47 +646,20 @@ async fn handle_http_via_socks4(
     }
   };
 
-  // Resolve target host to IP (SOCKS4 requires IP addresses)
-  let target_ip = match tokio::net::lookup_host((target_host, target_port)).await {
-    Ok(mut addrs) => {
-      if let Some(addr) = addrs.next() {
-        match addr.ip() {
-          std::net::IpAddr::V4(ipv4) => ipv4.octets(),
-          std::net::IpAddr::V6(_) => {
-            log::error!("SOCKS4 does not support IPv6");
-            let mut response = Response::new(Full::new(Bytes::from(
-              "SOCKS4 does not support IPv6 addresses",
-            )));
-            *response.status_mut() = StatusCode::BAD_GATEWAY;
-            return Ok(response);
-          }
-        }
-      } else {
-        log::error!("Failed to resolve target host: {}", target_host);
-        let mut response = Response::new(Full::new(Bytes::from(format!(
-          "Failed to resolve target host: {}",
-          target_host
-        ))));
-        *response.status_mut() = StatusCode::BAD_GATEWAY;
-        return Ok(response);
-      }
-    }
-    Err(e) => {
-      log::error!("Failed to resolve target host {}: {}", target_host, e);
-      let mut response = Response::new(Full::new(Bytes::from(format!(
-        "Failed to resolve target host: {}",
-        e
-      ))));
-      *response.status_mut() = StatusCode::BAD_GATEWAY;
-      return Ok(response);
-    }
-  };
-
-  // Build SOCKS4 CONNECT request
+  // Build a SOCKS4a CONNECT request. We deliberately do NOT resolve the target
+  // hostname locally: tokio::net::lookup_host would call the HOST resolver
+  // (getaddrinfo), leaking the destination domain to the host's DNS server and
+  // defeating the per-profile proxy. SOCKS4a has the PROXY resolve the name —
+  // send the sentinel IP 0.0.0.x (x != 0), then the NULL-terminated userid, then
+  // the NULL-terminated hostname. (Most SOCKS4 proxies support 4a; a legacy
+  // SOCKS4-only proxy without remote DNS cannot be used leak-free for plaintext
+  // HTTP — prefer SOCKS5 there.)
   let mut socks_request = vec![0x04, 0x01]; // SOCKS4, CONNECT
   socks_request.extend_from_slice(&target_port.to_be_bytes());
-  socks_request.extend_from_slice(&target_ip);
-  socks_request.push(0); // NULL terminator for userid
+  socks_request.extend_from_slice(&[0, 0, 0, 1]); // 0.0.0.1 => SOCKS4a remote-DNS marker
+  socks_request.push(0); // empty userid, NULL-terminated
+  socks_request.extend_from_slice(target_host.as_bytes()); // hostname for the proxy to resolve
+  socks_request.push(0); // NULL-terminated hostname
 
   // Send SOCKS4 CONNECT request
   if let Err(e) = socks_stream.write_all(&socks_request).await {
@@ -776,200 +886,6 @@ async fn handle_http_via_socks4(
   Ok(hyper_response)
 }
 
-/// Handle plain HTTP requests through a SOCKS5 proxy with REMOTE DNS resolution.
-/// This is similar to curl --socks5-hostname, ensuring DNS queries go through the proxy.
-async fn handle_http_via_socks5(
-  req: Request<hyper::body::Incoming>,
-  upstream_url: &str,
-) -> Result<Response<Full<Bytes>>, Infallible> {
-  // Extract domain for traffic tracking
-  let domain = req
-    .uri()
-    .host()
-    .map(|h| h.to_string())
-    .unwrap_or_else(|| "unknown".to_string());
-
-  // Parse upstream SOCKS5 proxy URL
-  let upstream = match Url::parse(upstream_url) {
-    Ok(url) => url,
-    Err(e) => {
-      log::error!("Failed to parse SOCKS5 proxy URL: {}", e);
-      let mut response = Response::new(Full::new(Bytes::from("Invalid proxy URL")));
-      *response.status_mut() = StatusCode::BAD_GATEWAY;
-      return Ok(response);
-    }
-  };
-
-  let socks_host = upstream.host_str().unwrap_or("127.0.0.1");
-  let socks_port = upstream.port().unwrap_or(1080);
-  let socks_addr = format!("{}:{}", socks_host, socks_port);
-
-  // Parse target from request URI
-  let target_uri = req.uri();
-  let target_host = target_uri.host().unwrap_or("localhost");
-  let target_port = target_uri.port_u16().unwrap_or(80);
-
-  // Connect to SOCKS5 proxy
-  let mut socks_stream = match TcpStream::connect(&socks_addr).await {
-    Ok(stream) => stream,
-    Err(e) => {
-      log::error!("Failed to connect to SOCKS5 proxy {}: {}", socks_addr, e);
-      let mut response = Response::new(Full::new(Bytes::from(format!(
-        "Failed to connect to SOCKS5 proxy: {}",
-        e
-      ))));
-      *response.status_mut() = StatusCode::BAD_GATEWAY;
-      return Ok(response);
-    }
-  };
-
-  // Use async-socks5 for SOCKS5 handshake with REMOTE DNS resolution
-  use async_socks5::{connect, AddrKind, Auth};
-
-  // Always use AddrKind::Domain to ensure remote DNS resolution (like curl --socks5-hostname)
-  let target = AddrKind::Domain(target_host.to_string(), target_port);
-
-  let auth_info: Option<Auth> = if !upstream.username().is_empty() {
-    Some(Auth {
-      username: upstream.username().to_string(),
-      password: upstream.password().unwrap_or("").to_string(),
-    })
-  } else {
-    None
-  };
-
-  // Perform SOCKS5 handshake
-  if let Err(e) = connect(&mut socks_stream, target, auth_info).await {
-    log::error!("SOCKS5 handshake failed: {}", e);
-    let mut response = Response::new(Full::new(Bytes::from(format!(
-      "SOCKS5 handshake failed: {}",
-      e
-    ))));
-    *response.status_mut() = StatusCode::BAD_GATEWAY;
-    return Ok(response);
-  }
-
-  // Now send the HTTP request through the SOCKS5 tunnel
-  let method = req.method().clone();
-  let uri = req.uri().clone();
-  let headers = req.headers().clone();
-  let body_bytes = match req.collect().await {
-    Ok(collected) => collected.to_bytes(),
-    Err(e) => {
-      log::error!("Failed to read request body: {}", e);
-      let mut response = Response::new(Full::new(Bytes::from("Failed to read request body")));
-      *response.status_mut() = StatusCode::BAD_REQUEST;
-      return Ok(response);
-    }
-  };
-
-  // Build HTTP request string
-  let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-  let mut http_request = format!("{} {} HTTP/1.1\r\n", method, path);
-  http_request.push_str(&format!("Host: {}\r\n", target_host));
-
-  for (name, value) in headers.iter() {
-    if name != "host" {
-      if let Ok(val_str) = value.to_str() {
-        http_request.push_str(&format!("{}: {}\r\n", name, val_str));
-      }
-    }
-  }
-
-  if !body_bytes.is_empty() {
-    http_request.push_str(&format!("Content-Length: {}\r\n", body_bytes.len()));
-  }
-
-  http_request.push_str("\r\n");
-
-  // Send HTTP request
-  if let Err(e) = socks_stream.write_all(http_request.as_bytes()).await {
-    log::error!("Failed to send HTTP request: {}", e);
-    let mut response = Response::new(Full::new(Bytes::from("Failed to send HTTP request")));
-    *response.status_mut() = StatusCode::BAD_GATEWAY;
-    return Ok(response);
-  }
-
-  if !body_bytes.is_empty() {
-    if let Err(e) = socks_stream.write_all(&body_bytes).await {
-      log::error!("Failed to send HTTP body: {}", e);
-      let mut response = Response::new(Full::new(Bytes::from("Failed to send HTTP body")));
-      *response.status_mut() = StatusCode::BAD_GATEWAY;
-      return Ok(response);
-    }
-  }
-
-  // Read HTTP response
-  let mut response_buffer = Vec::new();
-  let mut temp_buffer = [0u8; 8192];
-
-  loop {
-    match socks_stream.read(&mut temp_buffer).await {
-      Ok(0) => break, // EOF
-      Ok(n) => {
-        response_buffer.extend_from_slice(&temp_buffer[..n]);
-        // Check if we have a complete response (simple heuristic)
-        if response_buffer.len() > 4 {
-          let response_str = String::from_utf8_lossy(&response_buffer);
-          if response_str.contains("\r\n\r\n") {
-            // Check if we have Content-Length
-            if let Some(cl_pos) = response_str.to_lowercase().find("content-length:") {
-              if let Some(cl_end) = response_str[cl_pos..].find("\r\n") {
-                if let Ok(content_length) = response_str[cl_pos + 15..cl_pos + cl_end].trim().parse::<usize>() {
-                  let header_end = response_str.find("\r\n\r\n").unwrap() + 4;
-                  if response_buffer.len() >= header_end + content_length {
-                    break;
-                  }
-                }
-              }
-            } else if response_str.to_lowercase().contains("transfer-encoding: chunked") {
-              // For chunked encoding, wait for "0\r\n\r\n"
-              if response_str.ends_with("0\r\n\r\n") {
-                break;
-              }
-            } else {
-              // No Content-Length or Transfer-Encoding, assume complete after headers
-              break;
-            }
-          }
-        }
-      }
-      Err(e) => {
-        log::error!("Failed to read HTTP response: {}", e);
-        let mut response = Response::new(Full::new(Bytes::from("Failed to read HTTP response")));
-        *response.status_mut() = StatusCode::BAD_GATEWAY;
-        return Ok(response);
-      }
-    }
-  }
-
-  // Parse response
-  let response_str = String::from_utf8_lossy(&response_buffer);
-  let mut lines = response_str.lines();
-
-  let status_line = lines.next().unwrap_or("HTTP/1.1 502 Bad Gateway");
-  let status_code = status_line
-    .split_whitespace()
-    .nth(1)
-    .and_then(|s| s.parse::<u16>().ok())
-    .unwrap_or(502);
-
-  // Skip headers and get body
-  let body_start = response_str.find("\r\n\r\n").unwrap_or(0) + 4;
-  let body = response_buffer[body_start..].to_vec();
-  let response_size = body.len() as u64;
-
-  // Track traffic
-  if let Some(tracker) = get_traffic_tracker() {
-    tracker.record_request(&domain, body_bytes.len() as u64, response_size);
-  }
-
-  let mut hyper_response = Response::new(Full::new(Bytes::from(body)));
-  *hyper_response.status_mut() = StatusCode::from_u16(status_code).unwrap();
-
-  Ok(hyper_response)
-}
-
 /// Handle plain HTTP requests through a Shadowsocks upstream.
 /// reqwest doesn't support SS natively, so we connect through the SS tunnel
 /// manually and forward the HTTP request/response.
@@ -1121,7 +1037,7 @@ async fn handle_http(
 
   let should_bypass = bypass_matcher.should_bypass(&domain);
 
-  // Handle proxy types that reqwest doesn't support natively or need remote DNS
+  // Handle proxy types that reqwest doesn't support natively
   if !should_bypass {
     if let Some(ref upstream) = upstream_url {
       if upstream != "DIRECT" {
@@ -1129,10 +1045,6 @@ async fn handle_http(
           match url.scheme() {
             "socks4" => {
               return handle_http_via_socks4(req, upstream).await;
-            }
-            "socks5" => {
-              // Use custom handler for SOCKS5 to ensure remote DNS resolution
-              return handle_http_via_socks5(req, upstream).await;
             }
             "ss" | "shadowsocks" => {
               return handle_http_via_shadowsocks(req, &url).await;
@@ -1144,7 +1056,7 @@ async fn handle_http(
     }
   }
 
-  // Use reqwest for HTTP/HTTPS proxies
+  // Use reqwest for HTTP/HTTPS/SOCKS5 proxies
   use reqwest::Client;
 
   let client_builder = Client::builder();
@@ -1269,8 +1181,19 @@ fn build_reqwest_client_with_proxy(
       Proxy::http(upstream_url)?
     }
     "socks5" => {
-      // For SOCKS5, reqwest supports it directly
-      Proxy::all(upstream_url)?
+      // Donut: force REMOTE (proxy-side) DNS for plaintext HTTP over a SOCKS5
+      // upstream. reqwest maps the bare `socks5` scheme to DnsResolve::Local,
+      // which resolves the destination hostname on the HOST (getaddrinfo) BEFORE
+      // connecting — leaking the destination domain to the host's DNS resolver
+      // and defeating the per-profile proxy. The `socks5h` scheme maps to
+      // DnsResolve::Proxy, so the proxy resolves the hostname and nothing leaks.
+      // (The CONNECT/HTTPS path already does remote DNS via connect_via_socks's
+      // AddrKind::Domain.)
+      let remote_dns_url = match upstream_url.strip_prefix("socks5://") {
+        Some(rest) => format!("socks5h://{rest}"),
+        None => upstream_url.to_string(),
+      };
+      Proxy::all(remote_dns_url)?
     }
     "socks4" => {
       // SOCKS4 is handled manually in handle_http_via_socks4
@@ -1354,7 +1277,16 @@ pub async fn handle_proxy_connection(
         )
         .await
         {
-          log::warn!("CONNECT tunnel ended with error: {e}");
+          let msg = e.to_string();
+          if let Some(suppressed) = log_throttle(&msg) {
+            if suppressed > 0 {
+              log::warn!(
+                "CONNECT tunnel ended with error: {msg} ({suppressed} more suppressed in last 30s)"
+              );
+            } else {
+              log::warn!("CONNECT tunnel ended with error: {msg}");
+            }
+          }
         }
         return;
       }
@@ -1461,10 +1393,19 @@ pub async fn run_proxy_server(config: ProxyConfig) -> Result<(), Box<dyn std::er
 
   log::info!("Successfully bound to port {}", actual_port);
 
-  // Update config with actual port and local_url
+  // Protocol served to the browser: "socks5" (Wayfern) or "http" (default).
+  let local_protocol = config.local_protocol_or_default();
+  let serve_socks5 = local_protocol == "socks5";
+
+  // Update config with actual port and local_url (scheme matches the protocol
+  // we serve, so the parent's readiness check and any consumer see the truth)
   let mut updated_config = config.clone();
   updated_config.local_port = Some(actual_port);
-  updated_config.local_url = Some(format!("http://127.0.0.1:{}", actual_port));
+  updated_config.local_url = Some(format!(
+    "{}://127.0.0.1:{}",
+    if serve_socks5 { "socks5" } else { "http" },
+    actual_port
+  ));
 
   if !crate::proxy_storage::update_proxy_config(&updated_config) {
     log::error!("Failed to update proxy config");
@@ -1564,6 +1505,48 @@ pub async fn run_proxy_server(config: ProxyConfig) -> Result<(), Box<dyn std::er
     }
   });
 
+  // Self-reaping supervisor. The worker is a detached process that outlives the
+  // GUI, so it cannot rely on the GUI's in-memory death-monitor (which is lost
+  // when the GUI restarts). Once the GUI records the browser PID this worker
+  // serves, poll it and exit when that browser is gone — never while it is
+  // alive, and never before a PID is recorded (covers the launch window and
+  // pre-upgrade configs lacking the field). A 2-miss debounce avoids exiting on
+  // a transient sysinfo false-negative under load / sleep-wake.
+  {
+    let watch_id = config.id.clone();
+    tokio::spawn(async move {
+      let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
+      interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+      let mut consecutive_misses: u32 = 0;
+      loop {
+        interval.tick().await;
+        match crate::proxy_storage::get_proxy_config(&watch_id) {
+          Some(cfg) => match cfg.browser_pid {
+            Some(bpid) if bpid != 0 => {
+              if crate::proxy_storage::is_process_running(bpid) {
+                consecutive_misses = 0;
+              } else {
+                consecutive_misses += 1;
+                if consecutive_misses >= 2 {
+                  log::info!("Browser PID {bpid} for config {watch_id} is gone; worker exiting");
+                  crate::proxy_storage::delete_proxy_config(&watch_id);
+                  std::process::exit(0);
+                }
+              }
+            }
+            // No browser PID recorded yet (launch window / old config): keep running.
+            _ => consecutive_misses = 0,
+          },
+          // Our own config was removed (e.g. GUI stopped us): nothing to serve.
+          None => {
+            log::info!("Proxy config {watch_id} was removed; worker exiting");
+            std::process::exit(0);
+          }
+        }
+      }
+    });
+  }
+
   let bypass_matcher = BypassMatcher::new(&config.bypass_rules);
   let blocklist_matcher = if let Some(ref path) = config.blocklist_file {
     match BlocklistMatcher::from_file(path) {
@@ -1577,17 +1560,40 @@ pub async fn run_proxy_server(config: ProxyConfig) -> Result<(), Box<dyn std::er
     BlocklistMatcher::new()
   };
 
+  // Bound concurrent connection handlers. A client retry-storm (e.g. a browser
+  // hammering CONNECT requests while DNS is failing) must not spawn unbounded
+  // tasks,
+  // each of which parks a Tokio blocking thread inside getaddrinfo — that is
+  // what exhausted the resolver pool and pegged the CPU on long-lived workers.
+  // A real browser never approaches this ceiling; waiting for a permit
+  // backpressures a storm instead of amplifying it.
+  let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
+
   // Keep the runtime alive with an infinite loop
   // This ensures the process doesn't exit even if there are no active connections
   loop {
     match listener.accept().await {
       Ok((stream, _peer_addr)) => {
+        // The semaphore is never closed, so acquire cannot fail.
+        let permit = conn_semaphore
+          .clone()
+          .acquire_owned()
+          .await
+          .expect("connection semaphore is never closed");
         let upstream = upstream_url.clone();
         let matcher = bypass_matcher.clone();
         let blocker = blocklist_matcher.clone();
-        tokio::task::spawn(async move {
-          handle_proxy_connection(stream, upstream, matcher, blocker).await;
-        });
+        if serve_socks5 {
+          tokio::task::spawn(async move {
+            let _permit = permit;
+            crate::socks5_local::handle_socks5_connection(stream, upstream, matcher, blocker).await;
+          });
+        } else {
+          tokio::task::spawn(async move {
+            let _permit = permit;
+            handle_proxy_connection(stream, upstream, matcher, blocker).await;
+          });
+        }
       }
       Err(e) => {
         log::error!("Error accepting connection: {:?}", e);
@@ -1650,7 +1656,7 @@ async fn handle_connect_from_buffer(
     tracker.record_request(&domain, 0, 0);
   }
 
-  log::info!(
+  log::debug!(
     "CONNECT {}:{} (upstream={})",
     target_host,
     target_port,
@@ -1658,29 +1664,186 @@ async fn handle_connect_from_buffer(
   );
 
   // Connect to target (directly or via upstream proxy).
-  // Returns a BoxedAsyncStream so all upstream types (plain TCP, SOCKS,
-  // Shadowsocks) share the same bidirectional-copy tunnel code below.
+  let target_stream = connect_to_target_via_upstream(
+    target_host,
+    target_port,
+    upstream_url.as_deref(),
+    &bypass_matcher,
+  )
+  .await?;
+
+  // Send 200 Connection Established response to client
+  // CRITICAL: Must flush after writing to ensure response is sent before tunneling
+  client_stream
+    .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+    .await?;
+  client_stream.flush().await?;
+
+  log::trace!("Sent 200 Connection Established response, starting tunnel");
+
+  tunnel_streams(client_stream, target_stream, domain).await;
+
+  Ok(())
+}
+
+/// Upper bound on concurrent connection handlers per worker. A real browser
+/// never holds anywhere near this many simultaneous tunnels; the cap stops a
+/// client retry-storm from spawning unbounded tasks (each of which parks a
+/// Tokio blocking thread inside getaddrinfo).
+const MAX_CONCURRENT_CONNECTIONS: usize = 512;
+
+/// Connect timeout for the direct (no-upstream) dial path. Bounds a wedged
+/// `getaddrinfo` so a broken resolver can't park a blocking thread for the
+/// full OS timeout.
+const DIRECT_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Overall timeout for dialing an UPSTREAM proxy (TCP connect + CONNECT/SOCKS/SS
+/// handshake). Without it, an upstream that accepts TCP but stalls before
+/// replying hangs the worker task forever and holds a connection slot; under
+/// load (e.g. two profiles sharing one proxy) the slots exhaust and the browser
+/// sees `ERR_PROXY_CONNECTION_FAILED` until the profile is restarted (issue
+/// #439). A bounded dial fails fast and releases the slot.
+const UPSTREAM_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Per-host failure state (last failure instant, consecutive failure count) for
+/// the direct dial path. Process-global — each worker is its own process.
+fn direct_dial_failures() -> &'static Mutex<HashMap<String, (std::time::Instant, u32)>> {
+  static M: OnceLock<Mutex<HashMap<String, (std::time::Instant, u32)>>> = OnceLock::new();
+  M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// If `host` is inside its failure backoff window, return the remaining time so
+/// the caller can short-circuit without a fresh getaddrinfo/connect. Never
+/// mutates state, so the window always expires and the path self-heals once
+/// DNS recovers.
+fn direct_backoff_remaining(host: &str) -> Option<std::time::Duration> {
+  let map = direct_dial_failures();
+  let guard = map.lock().unwrap();
+  let (last, fails) = guard.get(host).copied()?;
+  // Exponential window capped at 30s: 2, 4, 8, 16, 30, 30, ...
+  let window = std::time::Duration::from_secs((1u64 << fails.min(5)).min(30));
+  let elapsed = last.elapsed();
+  if elapsed < window {
+    Some(window - elapsed)
+  } else {
+    None
+  }
+}
+
+/// Record a direct-dial failure for `host`, growing its backoff window.
+fn direct_backoff_record(host: &str) {
+  let map = direct_dial_failures();
+  let mut guard = map.lock().unwrap();
+  // Bound memory against a page that emits many distinct failing hosts.
+  if guard.len() > 2048 {
+    guard.retain(|_, (last, _)| last.elapsed() < std::time::Duration::from_secs(60));
+  }
+  let entry = guard
+    .entry(host.to_string())
+    .or_insert_with(|| (std::time::Instant::now(), 0));
+  entry.0 = std::time::Instant::now();
+  entry.1 = entry.1.saturating_add(1);
+}
+
+/// Clear `host`'s failure state after a successful dial.
+fn direct_backoff_clear(host: &str) {
+  direct_dial_failures().lock().unwrap().remove(host);
+}
+
+/// Dial a target directly (no upstream) with a connect timeout and per-host
+/// failure backoff. This is the server-side counterpart to the browser's
+/// instant client-side retry: when a host's DNS/connect is failing (e.g. the
+/// macOS resolver wedges after sleep/wake), repeated CONNECT requests
+/// short-circuit
+/// here instead of each spawning a fresh blocking getaddrinfo — which is what
+/// let a retry-storm exhaust the blocking thread pool and peg the CPU.
+async fn dial_direct(host: &str, port: u16) -> Result<TcpStream, Box<dyn std::error::Error>> {
+  if let Some(remaining) = direct_backoff_remaining(host) {
+    return Err(
+      format!(
+        "skipping direct dial to {host}: backing off ~{}s after repeated connect failures",
+        remaining.as_secs().max(1)
+      )
+      .into(),
+    );
+  }
+  match tokio::time::timeout(DIRECT_CONNECT_TIMEOUT, TcpStream::connect((host, port))).await {
+    Ok(Ok(stream)) => {
+      let _ = stream.set_nodelay(true);
+      direct_backoff_clear(host);
+      Ok(stream)
+    }
+    Ok(Err(e)) => {
+      direct_backoff_record(host);
+      Err(e.into())
+    }
+    Err(_) => {
+      direct_backoff_record(host);
+      Err(
+        format!(
+          "direct connect to {host}:{port} timed out after {}s",
+          DIRECT_CONNECT_TIMEOUT.as_secs()
+        )
+        .into(),
+      )
+    }
+  }
+}
+
+/// Rate-limit a repetitive log line keyed by `key`: returns `Some(suppressed)`
+/// when the caller should emit (first time or after a 30s window, with the
+/// count dropped since the last emit), or `None` to skip. Stops a connect/DNS
+/// storm from writing the same WARN millions of times (the line that grew
+/// worker logs to 100MB).
+pub(crate) fn log_throttle(key: &str) -> Option<u64> {
+  fn throttle_map() -> &'static Mutex<HashMap<String, (std::time::Instant, u64)>> {
+    static M: OnceLock<Mutex<HashMap<String, (std::time::Instant, u64)>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+  }
+  let map = throttle_map();
+  let mut guard = map.lock().unwrap();
+  if guard.len() > 2048 {
+    guard.retain(|_, (last, _)| last.elapsed() < std::time::Duration::from_secs(60));
+  }
+  let now = std::time::Instant::now();
+  match guard.get_mut(key) {
+    Some((last, suppressed)) => {
+      if now.duration_since(*last) >= std::time::Duration::from_secs(30) {
+        let dropped = *suppressed;
+        *last = now;
+        *suppressed = 0;
+        Some(dropped)
+      } else {
+        *suppressed += 1;
+        None
+      }
+    }
+    None => {
+      guard.insert(key.to_string(), (now, 0));
+      Some(0)
+    }
+  }
+}
+
+/// Establish a stream to `target_host:target_port`, either directly or through
+/// the configured upstream proxy. Shared by the HTTP CONNECT path and the
+/// local SOCKS5 server so every upstream type (direct, HTTP/HTTPS CONNECT,
+/// SOCKS4/5, Shadowsocks) is dialed in exactly one place. Returns a
+/// `BoxedAsyncStream` so the caller can tunnel over any upstream uniformly.
+pub(crate) async fn connect_to_target_via_upstream(
+  target_host: &str,
+  target_port: u16,
+  upstream_url: Option<&str>,
+  bypass_matcher: &BypassMatcher,
+) -> Result<BoxedAsyncStream, Box<dyn std::error::Error>> {
   let should_bypass = bypass_matcher.should_bypass(target_host);
   // Helper: configure outbound TCP to match browser TCP fingerprint
   let configure_tcp = |stream: &TcpStream| {
     let _ = stream.set_nodelay(true);
   };
-  let target_stream: BoxedAsyncStream = match upstream_url.as_ref() {
-    None => {
-      let s = TcpStream::connect((target_host, target_port)).await?;
-      configure_tcp(&s);
-      Box::new(s)
-    }
-    Some(url) if url == "DIRECT" => {
-      let s = TcpStream::connect((target_host, target_port)).await?;
-      configure_tcp(&s);
-      Box::new(s)
-    }
-    _ if should_bypass => {
-      let s = TcpStream::connect((target_host, target_port)).await?;
-      configure_tcp(&s);
-      Box::new(s)
-    }
+  let target_stream: BoxedAsyncStream = match upstream_url {
+    None | Some("DIRECT") => Box::new(dial_direct(target_host, target_port).await?),
+    _ if should_bypass => Box::new(dial_direct(target_host, target_port).await?),
     Some(upstream_url_str) => {
       let upstream = Url::parse(upstream_url_str)?;
       let scheme = upstream.scheme();
@@ -1689,7 +1852,14 @@ async fn handle_connect_from_buffer(
         "http" | "https" => {
           let proxy_host = upstream.host_str().unwrap_or("127.0.0.1");
           let proxy_port = upstream.port().unwrap_or(8080);
-          let mut proxy_stream = TcpStream::connect((proxy_host, proxy_port)).await?;
+          let mut proxy_stream = tokio::time::timeout(
+            UPSTREAM_DIAL_TIMEOUT,
+            TcpStream::connect((proxy_host, proxy_port)),
+          )
+          .await
+          .map_err(|_| {
+            format!("upstream proxy connect to {proxy_host}:{proxy_port} timed out")
+          })??;
           configure_tcp(&proxy_stream);
 
           let mut connect_req = format!(
@@ -1697,10 +1867,9 @@ async fn handle_connect_from_buffer(
             target_host, target_port, target_host, target_port
           );
 
-          if !upstream.username().is_empty() {
+          let (username, password) = upstream_userpass(&upstream);
+          if !username.is_empty() {
             use base64::{engine::general_purpose, Engine as _};
-            let username = upstream.username();
-            let password = upstream.password().unwrap_or("");
             let auth = general_purpose::STANDARD.encode(format!("{}:{}", username, password));
             connect_req.push_str(&format!("Proxy-Authorization: Basic {}\r\n", auth));
           }
@@ -1710,7 +1879,9 @@ async fn handle_connect_from_buffer(
           proxy_stream.write_all(connect_req.as_bytes()).await?;
 
           let mut buffer = [0u8; 4096];
-          let n = proxy_stream.read(&mut buffer).await?;
+          let n = tokio::time::timeout(UPSTREAM_DIAL_TIMEOUT, proxy_stream.read(&mut buffer))
+            .await
+            .map_err(|_| "upstream proxy CONNECT response timed out")??;
           let response_full = String::from_utf8_lossy(&buffer[..n]).to_string();
           let status_line = response_full.lines().next().unwrap_or("").to_string();
 
@@ -1758,19 +1929,15 @@ async fn handle_connect_from_buffer(
           let socks_port = upstream.port().unwrap_or(1080);
           let socks_addr = format!("{}:{}", socks_host, socks_port);
 
-          let username = upstream.username();
-          let password = upstream.password().unwrap_or("");
+          let (username, password) = upstream_userpass(&upstream);
+          let auth = (!username.is_empty()).then_some((username.as_str(), password.as_str()));
 
           let stream = connect_via_socks(
             &socks_addr,
             target_host,
             target_port,
             scheme == "socks5",
-            if !username.is_empty() {
-              Some((username, password))
-            } else {
-              None
-            },
+            auth,
           )
           .await?;
           Box::new(stream)
@@ -1813,12 +1980,16 @@ async fn handle_connect_from_buffer(
           let target_addr =
             shadowsocks::relay::Address::DomainNameAddress(target_host.to_string(), target_port);
 
-          let stream = shadowsocks::relay::tcprelay::proxy_stream::ProxyClientStream::connect(
-            context,
-            &svr_cfg,
-            target_addr,
+          let stream = tokio::time::timeout(
+            UPSTREAM_DIAL_TIMEOUT,
+            shadowsocks::relay::tcprelay::proxy_stream::ProxyClientStream::connect(
+              context,
+              &svr_cfg,
+              target_addr,
+            ),
           )
           .await
+          .map_err(|_| "Shadowsocks connection timed out".to_string())?
           .map_err(|e| format!("Shadowsocks connection failed: {e}"))?;
 
           Box::new(stream)
@@ -1830,20 +2001,18 @@ async fn handle_connect_from_buffer(
     }
   };
 
-  // TCP_NODELAY is set per-stream where applicable (TcpStream paths).
-  // For encrypted streams (Shadowsocks), the underlying TCP connection
-  // is managed by the library and nodelay is handled internally.
+  Ok(target_stream)
+}
 
-  // Send 200 Connection Established response to client
-  // CRITICAL: Must flush after writing to ensure response is sent before tunneling
-  client_stream
-    .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-    .await?;
-  client_stream.flush().await?;
-
-  log::trace!("Sent 200 Connection Established response, starting tunnel");
-
-  // Now tunnel data bidirectionally with counting
+/// Bidirectionally relay `client_stream` <-> `target_stream` until either side
+/// closes, counting bytes for traffic stats and attributing them to `domain`.
+/// The caller is responsible for having already sent any protocol-specific
+/// success reply (HTTP `200` or SOCKS5 reply) before calling this.
+pub(crate) async fn tunnel_streams(
+  client_stream: TcpStream,
+  target_stream: BoxedAsyncStream,
+  domain: String,
+) {
   // Wrap streams to count bytes transferred
   let counting_client = CountingStream::new(client_stream);
   let counting_target = CountingStream::new(target_stream);
@@ -1906,14 +2075,67 @@ async fn handle_connect_from_buffer(
   if let Some(tracker) = get_traffic_tracker() {
     tracker.update_domain_bytes(&domain, final_sent, final_recv);
   }
-
-  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
   use std::io::Write;
+
+  /// Build an upstream URL with `urlencoding::encode`-d user/pass,
+  /// mirroring what `proxy_manager::build_proxy_url` actually emits
+  fn parse_encoded_upstream(scheme: &str, user: &str, pass: &str) -> Url {
+    let s = format!(
+      "{}://{}:{}@127.0.0.1:1080",
+      scheme,
+      urlencoding::encode(user),
+      urlencoding::encode(pass),
+    );
+    Url::parse(&s).unwrap()
+  }
+
+  #[test]
+  fn upstream_userpass_handles_plain_ascii() {
+    let u = parse_encoded_upstream("socks5", "alice", "secret123");
+    assert_eq!(upstream_userpass(&u), ("alice".into(), "secret123".into()));
+  }
+
+  #[test]
+  fn upstream_userpass_decodes_special_chars() {
+    // These characters all get percent-encoded by build_proxy_url before
+    // landing in the URL, and must be decoded back to the original literal
+    // before being handed off to the upstream
+    let cases = [
+      ("alice", "p@ssw0rd"),
+      ("alice", "p:assw0rd"),
+      ("alice", "p ass word"),
+      ("alice", "abc/d+e=f"),
+      ("alice", "100%off!"),
+      ("alice", "测试密码"),
+      ("u@name", "v@lue"),
+    ];
+    for (user, pass) in cases {
+      let u = parse_encoded_upstream("socks5", user, pass);
+      assert_eq!(
+        upstream_userpass(&u),
+        (user.to_string(), pass.to_string()),
+        "decode failed: user={user:?} pass={pass:?}"
+      );
+    }
+  }
+
+  #[test]
+  fn upstream_userpass_empty_when_no_credentials() {
+    let u = Url::parse("socks5://127.0.0.1:1080").unwrap();
+    assert_eq!(upstream_userpass(&u), (String::new(), String::new()));
+  }
+
+  #[test]
+  fn upstream_userpass_handles_username_only() {
+    let s = format!("socks5://{}@127.0.0.1:1080", urlencoding::encode("u@name"));
+    let u = Url::parse(&s).unwrap();
+    assert_eq!(upstream_userpass(&u), ("u@name".into(), String::new()));
+  }
 
   #[test]
   fn test_blocklist_exact_match() {

@@ -90,7 +90,9 @@
       "unknown": "不明なエラーが発生しました"
     },
     "window": {
-      "minimize": "最小化"
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "元に戻す"
     },
     "commandPalette": {
       "title": "コマンドパレット",
@@ -173,6 +175,15 @@
         "mismatchToast": "パスワードが一致しません"
       }
     },
+    "commercial": {
+      "title": "商用ライセンス",
+      "trialActive": "トライアル: 残り {{days}} 日 {{hours}} 時間",
+      "trialActiveDescription": "トライアル期間中は商用利用が無料です。期間が終了してもすべての機能はそのまま使用できます — 個人利用は引き続き無料で、商用利用のみライセンスが必要になります。",
+      "trialExpired": "トライアル期限切れ",
+      "trialExpiredDescription": "個人利用は引き続き無料です。商用利用にはライセンスが必要です。",
+      "subscriptionActive": "サブスクリプション中 — {{plan}} プラン",
+      "subscriptionActiveDescription": "Donut Browser のサブスクリプションが有効です。プランの期間中、商用利用がライセンスされます。"
+    },
     "advanced": {
       "title": "詳細設定",
       "clearCache": "すべてのバージョンキャッシュをクリア",
@@ -181,8 +192,10 @@
       "copyLogs": "ログをコピー",
       "openLogDir": "ログフォルダを開く",
       "copyLogsSuccess": "ログをクリップボードにコピーしました",
-      "copyLogsDescription": "最新のログファイル(最大 5 MB)をクリップボードにまとめ、不具合報告で共有できるようにします。"
+      "copyLogsDescription": "最新のログファイル（最大 5 MB）をクリップボードにまとめ、不具合報告で共有できるようにします。"
     },
+    "disableAutoUpdates": "アプリの自動更新を無効にする",
+    "disableAutoUpdatesDescription": "Donut Browserの自動更新確認・インストールを無効にします。ブラウザの更新には影響しません。",
     "keepDecryptedProfilesInRam": "復号済みプロファイルをRAMに保持",
     "keepDecryptedProfilesInRamDescription": "起動を高速化するため、パスワード保護されたプロファイルの復号済みコピーをRAMに保持します。ディスク上のコピーは常に暗号化されたままです。"
   },
@@ -228,7 +241,11 @@
       "extDefault": "既定",
       "dnsLevel": "DNS ブロックリスト: {{level}}",
       "extSearch": "グループを検索…",
-      "extEmpty": "拡張機能グループがありません"
+      "extEmpty": "拡張機能グループがありません",
+      "cantModifyRunning": "実行中のプロファイルは変更できません",
+      "cantModifyLaunching": "起動中はプロファイルを変更できません",
+      "cantModifyStopping": "停止中はプロファイルを変更できません",
+      "cantModifyUpdating": "ブラウザの更新中はプロファイルを変更できません"
     },
     "actions": {
       "launch": "起動",
@@ -288,11 +305,32 @@
       "assignToGroup": "グループに割り当て",
       "assignProxy": "プロキシを割り当て",
       "assignExtensionGroup": "拡張機能グループを割り当て",
-      "copyCookies": "Cookieをコピー"
+      "copyCookies": "Cookieをコピー",
+      "runSelected": "選択を実行",
+      "stopSelected": "選択を停止",
+      "proRequired": "一括実行・停止には Pro プランが必要です"
     },
     "passwordProtectedBadge": "パスワード保護",
     "launchHook": {
       "placeholder": "https://example.com/track-launch"
+    },
+    "bulkRun": {
+      "confirmTitle": "{{count}} 個のプロファイルを実行しますか？",
+      "confirmDescription": "{{count}} 個のプロファイルを一度に起動すると、システムリソースを大量に消費する可能性があります。続行しますか？",
+      "confirmButton": "{{count}} 個を実行",
+      "noneToRun": "実行する選択中のプロファイルがありません。"
+    },
+    "bulkStop": {
+      "confirmTitle": "{{count}} 個のプロファイルを停止しますか？",
+      "confirmDescription": "実行中の {{count}} 個のプロファイルを停止しますか？",
+      "confirmButton": "{{count}} 個を停止",
+      "noneToStop": "停止する選択中のプロファイルがありません。"
+    },
+    "sort": {
+      "nameAsc": "名前 (A→Z)",
+      "nameDesc": "名前 (Z→A)",
+      "newest": "新しい順",
+      "oldest": "古い順"
     }
   },
   "createProfile": {
@@ -384,6 +422,7 @@
       "newProxy": "新しいプロキシ",
       "newVpn": "新しいVPN",
       "protocolCol": "プロトコル",
+      "hostPort": "ホスト : ポート",
       "title": "プロキシと VPN"
     },
     "add": "プロキシを追加",
@@ -628,7 +667,11 @@
       "profileSynced": "プロファイル '{{name}}' を同期しました",
       "profileSyncFailed": "プロファイル '{{name}}' の同期に失敗しました",
       "profileSyncFailedWithError": "プロファイル '{{name}}' の同期に失敗しました: {{error}}"
-    }
+    },
+    "enabledToast": "同期を有効化しました",
+    "disabledToast": "同期を無効化しました",
+    "enabledDescription": "プロファイルの同期が有効になりました",
+    "disabledDescription": "プロファイルの同期が無効になりました"
   },
   "integrations": {
     "title": "統合",
@@ -907,6 +950,11 @@
       "syncingProfile": "プロファイル '{{name}}' を同期中...",
       "syncingProfileWithProgress": "{{count}} ファイル ({{size}})",
       "updatingVersions": "ブラウザバージョンを更新中..."
+    },
+    "progress": {
+      "remaining": "残り {{time}}",
+      "filesProgress": "{{completed}}/{{total}} ファイル",
+      "filesFailed": "{{count}} 件のファイルが失敗しました"
     }
   },
   "errors": {
@@ -1107,7 +1155,8 @@
       "proxy": "プロキシ",
       "vpn": "VPN",
       "cookieCount": "保存された Cookie",
-      "localDataTransfer": "ローカルデータ転送量"
+      "localDataTransfer": "ローカルデータ転送量",
+      "created": "作成日"
     },
     "values": {
       "none": "なし",
@@ -1116,7 +1165,8 @@
       "yes": "はい",
       "activeNow": "現在アクティブ",
       "direct": "直接",
-      "loading": "読み込み中…"
+      "loading": "読み込み中…",
+      "unknown": "不明"
     },
     "network": {
       "bypassRules": "プロキシバイパスルール",
@@ -1125,7 +1175,9 @@
       "addRule": "ルールを追加",
       "rulePlaceholder": "例: example.com, 192.168.1.*, .*\\.local",
       "noRules": "バイパスルールは設定されていません。",
-      "ruleTypes": "ホスト名、IPアドレス、正規表現パターンをサポートしています。"
+      "ruleTypes": "ホスト名、IPアドレス、正規表現パターンをサポートしています。",
+      "vpnLabel": "VPN: {{name}}",
+      "proxyLabel": "Proxy: {{name}}"
     },
     "launchHook": {
       "title": "起動フックURL",
@@ -1187,6 +1239,12 @@
       "notSupported": "フィンガープリント編集は Camoufox / Wayfern プロファイルでのみ利用できます。",
       "lockedTitle": "フィンガープリントの表示と編集は Pro 機能です",
       "lockedDescription": "フィンガープリント保護はすべてのプランに含まれています。プロファイルのフィンガープリントの値を表示・編集するには、有効な有料プランが必要です。"
+    },
+    "syncStatusValue": {
+      "waiting": "待機中",
+      "syncing": "同期中",
+      "synced": "同期済み",
+      "error": "エラー"
     }
   },
   "extensions": {
@@ -1532,6 +1590,14 @@
     "acceptFailed": "規約への同意に失敗しました",
     "tryAgain": "もう一度お試しください"
   },
+  "commercialTrial": {
+    "title": "商用試用期間が終了しました",
+    "description": "2 週間の商用試用期間が終了しました。",
+    "body": "商用目的で Donut Browser を使用する場合は、続行するために商用ライセンスを購入する必要があります。個人利用は引き続き無料でお使いいただけます。",
+    "understandButton": "了解しました",
+    "failed": "確認の保存に失敗しました",
+    "tryAgain": "もう一度お試しください"
+  },
   "permissionDialog": {
     "titleMicrophone": "マイクへのアクセスが必要です",
     "titleCamera": "カメラへのアクセスが必要です",
@@ -1699,7 +1765,8 @@
       "updateStartedDescription": "バージョン {{version}} のダウンロードがまもなく開始されます。更新が完了するまでブラウザの起動は無効になります。",
       "downloadStarting": "{{browser}} {{version}} のダウンロードを開始しています",
       "downloadProgressBelow": "ダウンロードの進行状況は下に表示されます...",
-      "autoDownloadStarted": "{{browser}} {{version}} を自動的にダウンロードしています。進行状況は下に表示されます。"
+      "autoDownloadStarted": "{{browser}} {{version}} を自動的にダウンロードしています。進行状況は下に表示されます。",
+      "lookingForUpdates": "{{browser}} の更新を確認しています"
     }
   },
   "profilePassword": {
@@ -1777,6 +1844,7 @@
     "passwordTooShort": "パスワードは {{min}} 文字以上必要です",
     "proxyNotFound": "プロキシが見つかりません",
     "groupNotFound": "グループが見つかりません",
+    "groupAlreadyExists": "この名前のグループは既に存在します",
     "vpnNotFound": "VPNが見つかりません",
     "extensionNotFound": "拡張機能が見つかりません",
     "extensionGroupNotFound": "拡張機能グループが見つかりません",
@@ -1791,7 +1859,8 @@
     "fingerprintRequiresPro": "フィンガープリントの表示または編集には有効な有料プランが必要です。保護機能はすべてのプランに含まれています。",
     "proxyNotWorking": "選択したプロキシが機能していないため、プロファイルは作成されませんでした。",
     "proxyPaymentRequired": "選択したプロキシは支払いが必要です（402）。サブスクリプションが期限切れの可能性があります。そのため、プロファイルは作成されませんでした。",
-    "vpnNotWorking": "選択したVPNが機能していないため、プロファイルは作成されませんでした。"
+    "vpnNotWorking": "選択したVPNが機能していないため、プロファイルは作成されませんでした。",
+    "camoufoxImportDeprecated": "Firefox ベース（Camoufox）のプロファイルのインポートはサポートされなくなりました。Camoufox は廃止予定です。代わりに Wayfern をご利用ください。"
   },
   "rail": {
     "profiles": "プロファイル",
@@ -1849,6 +1918,7 @@
     "loggedOut": "ログアウトしました",
     "signedOut": "未ログイン",
     "signedOutDescription": "クラウド同期、暗号化プロファイル、チーム機能を有効にするにはサインインしてください。",
+    "plan": "プラン: {{plan}} · {{period}}",
     "refresh": "更新",
     "logout": "サインアウト",
     "signIn": "サインイン",
@@ -1919,7 +1989,7 @@
   },
   "browserSupport": {
     "endingSoonTitle": "ブラウザのサポートが間もなく終了します",
-    "endingSoonDescription": "次のプロファイルのサポートは 2026 年 3 月 15 日に削除されます: {{profiles}}。Wayfern または Camoufox のプロファイルに移行してください。"
+    "endingSoonDescription": "以下のプロファイルのサポートは 2026 年 3 月 15 日に削除されます: {{profiles}}。Wayfern プロファイルに移行してください。"
   },
   "onboarding": {
     "steps": {
@@ -1992,7 +2062,19 @@
       "body": "Donut Browser はオープンソースで、無料で利用できます。",
       "agree": "了解しました",
       "personalTitle": "個人利用",
-      "personalDesc": "永久に無料です。"
+      "personalDesc": "永久に無料です。",
+      "commercialTitle": "商用利用",
+      "trialBadge": "2週間無料",
+      "commercialDesc": "2週間の評価期間は無料です。その後は有料プランが必要で、これによりプロジェクトの維持と発展が支えられます。"
     }
+  },
+  "wayfernBlocked": {
+    "title": "ブラウザの自動化が一時停止しました",
+    "description": "通常は複数のデバイスで同時にサインインしたことが原因で、アカウントのProブラウザ機能が一時的に制限されました。他のデバイスからサインアウトし、プロファイルを再起動すると復元されます。"
+  },
+  "camoufoxDeprecation": {
+    "title": "Camoufox のサポートが終了します",
+    "description": "Camoufox プロファイルのサポートは 2026 年 7 月 8 日に終了します。Camoufox プロファイルが 1 つ以上あります。それまでに Wayfern へ移行してください。その後、Camoufox プロファイルは動作しなくなる可能性があります。",
+    "acknowledge": "了解しました"
   }
 }

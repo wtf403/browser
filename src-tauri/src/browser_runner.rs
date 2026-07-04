@@ -1,5 +1,6 @@
 use crate::browser::ProxySettings;
 use crate::camoufox_manager::{CamoufoxConfig, CamoufoxManager};
+use crate::cloud_auth::CLOUD_AUTH;
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
 use crate::platform_browser;
@@ -58,7 +59,8 @@ impl BrowserRunner {
     Ok(Some(path.to_string_lossy().to_string()))
   }
 
-  /// Resolve the proxy settings with profile-specific sid for sticky sessions.
+  /// Refresh cloud proxy credentials if the profile uses a cloud or cloud-derived proxy,
+  /// then resolve the proxy settings with profile-specific sid for sticky sessions.
   async fn resolve_proxy_with_refresh(
     &self,
     proxy_id: Option<&String>,
@@ -69,6 +71,10 @@ impl BrowserRunner {
       None => return Ok(None),
     };
 
+    if PROXY_MANAGER.is_cloud_or_derived(proxy_id) {
+      log::info!("Refreshing cloud proxy credentials before launch for proxy {proxy_id}");
+      CLOUD_AUTH.sync_cloud_proxy().await;
+    }
     // For cloud-derived proxies, inject profile-specific sid for sticky sessions
     if let Some(pid) = profile_id {
       if PROXY_MANAGER.is_cloud_or_derived(proxy_id) {
@@ -255,6 +261,11 @@ impl BrowserRunner {
           Some(&profile_id_str),
           profile.proxy_bypass_rules.clone(),
           blocklist_file,
+          // Camoufox (Firefox 150, and Firefox 135 on the not-yet-updated
+          // Windows build) keeps the local HTTP proxy: Firefox's QUIC stack
+          // bypasses a configured proxy, so QUIC is disabled and HTTP CONNECT
+          // covers everything. SOCKS5 is reserved for Wayfern.
+          "http",
         )
         .await
         .map_err(|e| {
@@ -398,6 +409,10 @@ impl BrowserRunner {
         log::info!("Updated proxy PID mapping from temp (0) to actual PID: {process_id}");
       }
 
+      // Persist the real browser PID so the detached proxy worker self-reaps
+      // when this browser dies, even after the GUI exits/restarts.
+      PROXY_MANAGER.set_browser_pid_for_profile(&updated_profile.id.to_string(), process_id);
+
       // Save the updated profile (includes new fingerprint if randomize is enabled)
       log::info!(
         "Saving profile {} with camoufox_config fingerprint length: {}",
@@ -521,6 +536,11 @@ impl BrowserRunner {
           Some(&profile_id_str),
           profile.proxy_bypass_rules.clone(),
           blocklist_file,
+          // Wayfern (Chromium) uses a local SOCKS5 proxy so QUIC and WebRTC
+          // UDP can be routed through it (via SOCKS5 UDP ASSOCIATE) without
+          // leaking the real IP, rather than being forced direct as they
+          // would be over an HTTP CONNECT proxy.
+          "socks5",
         )
         .await
         .map_err(|e| {
@@ -529,8 +549,9 @@ impl BrowserRunner {
           error_msg
         })?;
 
-      // Format proxy URL for wayfern - always use HTTP for the local proxy
-      let proxy_url = format!("http://{}:{}", local_proxy.host, local_proxy.port);
+      // Format proxy URL for wayfern - use SOCKS5 for the local proxy so
+      // Chromium proxies UDP (QUIC/WebRTC), not just TCP.
+      let proxy_url = format!("socks5://{}:{}", local_proxy.host, local_proxy.port);
 
       // Set proxy in wayfern config
       wayfern_config.proxy = Some(proxy_url);
@@ -576,6 +597,14 @@ impl BrowserRunner {
         if wayfern_config.os.is_some() {
           updated_wayfern_config.os = wayfern_config.os.clone();
         }
+        // The fresh fingerprint's location matches the current routing; record
+        // its signature so launches keep it in sync with the non-randomize path.
+        updated_wayfern_config.geo_proxy_signature =
+          Some(crate::wayfern_manager::WayfernManager::geo_signature(
+            upstream_proxy.as_ref(),
+            profile.vpn_id.as_deref(),
+            wayfern_config.geoip.as_ref(),
+          ));
         updated_profile.wayfern_config = Some(updated_wayfern_config.clone());
 
         log::info!(
@@ -583,6 +612,62 @@ impl BrowserRunner {
           profile.name,
           updated_wayfern_config.fingerprint.as_ref().map(|f| f.len()).unwrap_or(0)
         );
+      } else {
+        // Safety net: the stored fingerprint's timezone and geolocation were
+        // computed for whatever proxy was set when the fingerprint was
+        // generated. If the profile's proxy or VPN has changed since (the
+        // common case being a user who forgot to set a proxy at creation and
+        // added one afterwards), that location data is stale and the user would
+        // see the wrong timezone on first launch. When the routing signature no
+        // longer matches, refresh just the location fields of the stored
+        // fingerprint through the current proxy. Wayfern only; the randomize
+        // path above already regenerates the whole fingerprint each launch.
+        let current_geo_sig = crate::wayfern_manager::WayfernManager::geo_signature(
+          upstream_proxy.as_ref(),
+          profile.vpn_id.as_deref(),
+          wayfern_config.geoip.as_ref(),
+        );
+        let geo_enabled = !matches!(
+          wayfern_config.geoip.as_ref(),
+          Some(serde_json::Value::Bool(false))
+        );
+        if geo_enabled
+          && wayfern_config.geo_proxy_signature.as_deref() != Some(current_geo_sig.as_str())
+        {
+          if let Some(stored_fp) = wayfern_config.fingerprint.clone() {
+            log::info!(
+              "Routing changed for Wayfern profile {} since its fingerprint was generated (was {:?}, now {}); refreshing timezone and geolocation",
+              profile.name,
+              wayfern_config.geo_proxy_signature,
+              current_geo_sig
+            );
+            match crate::wayfern_manager::WayfernManager::refresh_fingerprint_geolocation(
+              &stored_fp,
+              wayfern_config.proxy.as_deref(),
+              wayfern_config.geoip.as_ref(),
+            )
+            .await
+            {
+              Some(refreshed) => {
+                // Use the refreshed fingerprint for this launch...
+                wayfern_config.fingerprint = Some(refreshed.clone());
+                wayfern_config.geo_proxy_signature = Some(current_geo_sig.clone());
+                // ...and persist it so the corrected location sticks and we do
+                // not refresh again on the next launch with the same proxy.
+                let mut cfg = updated_profile.wayfern_config.clone().unwrap_or_default();
+                cfg.fingerprint = Some(refreshed);
+                cfg.geo_proxy_signature = Some(current_geo_sig);
+                updated_profile.wayfern_config = Some(cfg);
+              }
+              None => {
+                log::warn!(
+                  "Could not refresh geolocation for Wayfern profile {} (proxy unreachable?); launching with existing location and will retry next launch",
+                  profile.name
+                );
+              }
+            }
+          }
+        }
       }
 
       // Create ephemeral dir for ephemeral or password-protected profiles
@@ -678,6 +763,10 @@ impl BrowserRunner {
       } else {
         log::info!("Updated proxy PID mapping from temp (0) to actual PID: {process_id}");
       }
+
+      // Persist the real browser PID so the detached proxy worker self-reaps
+      // when this browser dies, even after the GUI exits/restarts.
+      PROXY_MANAGER.set_browser_pid_for_profile(&updated_profile.id.to_string(), process_id);
 
       // Save the updated profile
       log::info!(
@@ -2297,6 +2386,9 @@ pub async fn launch_browser_profile_impl(
     ));
   }
 
+  // Team lock check: if profile is sync-enabled and user is on a team, acquire lock
+  crate::team_lock::acquire_team_lock_if_needed(&profile).await?;
+
   // Notify sync scheduler that profile is now running and queue sync for when it stops
   if let Some(scheduler) = crate::sync::get_global_scheduler() {
     let pid = profile.id.to_string();
@@ -2432,6 +2524,9 @@ pub async fn kill_browser_profile(
         profile.name,
         profile.id
       );
+
+      // Release team lock if applicable
+      crate::team_lock::release_team_lock_if_needed(&profile).await;
 
       // Notify sync scheduler that profile stopped (sync was queued at launch)
       if let Some(scheduler) = crate::sync::get_global_scheduler() {

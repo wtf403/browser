@@ -43,17 +43,21 @@ pub mod proxy_runner;
 pub mod proxy_server;
 pub mod proxy_storage;
 mod settings_manager;
+pub mod socks5_local;
 pub mod sync;
 mod synchronizer;
 pub mod traffic_stats;
 mod wayfern_manager;
 mod wayfern_terms;
 // mod theme_detector; // removed: theme detection handled in webview via CSS prefers-color-scheme
+pub mod cloud_auth;
+mod commercial_license;
 mod cookie_manager;
 pub mod events;
 mod mcp_integrations;
 mod mcp_server;
 mod tag_manager;
+mod team_lock;
 mod version_updater;
 pub mod vpn;
 pub mod vpn_worker_runner;
@@ -147,6 +151,8 @@ use api_server::{get_api_server_status, start_api_server, stop_api_server};
 pub trait WindowExt {
   #[cfg(target_os = "macos")]
   fn set_transparent_titlebar(&self, transparent: bool) -> Result<(), String>;
+  #[cfg(target_os = "macos")]
+  fn disable_native_fullscreen(&self) -> Result<(), String>;
 }
 
 impl<R: Runtime> WindowExt for WebviewWindow<R> {
@@ -161,7 +167,7 @@ impl<R: Runtime> WindowExt for WebviewWindow<R> {
 
       if transparent {
         // Hide the title text
-        ns_window.setTitleVisibility(NSWindowTitleVisibility(2)); // NSWindowTitleHidden
+        ns_window.setTitleVisibility(NSWindowTitleVisibility(1)); // NSWindowTitleHidden
 
         // Make titlebar transparent
         ns_window.setTitlebarAppearsTransparent(true);
@@ -182,6 +188,33 @@ impl<R: Runtime> WindowExt for WebviewWindow<R> {
         let new_mask = NSWindowStyleMask(current_mask.0 & !(1 << 15));
         ns_window.setStyleMask(new_mask);
       }
+    }
+
+    Ok(())
+  }
+
+  #[cfg(target_os = "macos")]
+  fn disable_native_fullscreen(&self) -> Result<(), String> {
+    use objc2::rc::Retained;
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+
+    unsafe {
+      let ns_window: Retained<NSWindow> =
+        Retained::retain(self.ns_window().unwrap().cast()).unwrap();
+
+      // Make the green title-bar button (and titlebar double-click) "zoom"
+      // the window to fill the screen as an ordinary window instead of
+      // entering immersive native fullscreen that hides the menu bar and
+      // moves to its own Space. Mirrors Electron's `fullscreenable: false`:
+      // clear FullScreenPrimary and set FullScreenNone. AppKit then maps the
+      // green button to the standard zoom, expanding to the visible screen
+      // frame while keeping the window chrome and the current Space.
+      const FULL_SCREEN_PRIMARY: usize = 1 << 7;
+      const FULL_SCREEN_NONE: usize = 1 << 9;
+      let current = ns_window.collectionBehavior();
+      let updated =
+        NSWindowCollectionBehavior((current.0 & !FULL_SCREEN_PRIMARY) | FULL_SCREEN_NONE);
+      ns_window.setCollectionBehavior(updated);
     }
 
     Ok(())
@@ -411,6 +444,26 @@ async fn accept_wayfern_terms() -> Result<(), String> {
     .await
 }
 
+#[tauri::command]
+async fn get_commercial_trial_status(
+  app_handle: tauri::AppHandle,
+) -> Result<commercial_license::TrialStatus, String> {
+  commercial_license::CommercialLicenseManager::instance()
+    .get_trial_status(&app_handle)
+    .await
+}
+
+#[tauri::command]
+async fn acknowledge_trial_expiration(app_handle: tauri::AppHandle) -> Result<(), String> {
+  commercial_license::CommercialLicenseManager::instance()
+    .acknowledge_expiration(&app_handle)
+    .await
+}
+
+#[tauri::command]
+fn has_acknowledged_trial_expiration(app_handle: tauri::AppHandle) -> Result<bool, String> {
+  commercial_license::CommercialLicenseManager::instance().has_acknowledged(&app_handle)
+}
 
 #[tauri::command]
 async fn start_mcp_server(app_handle: tauri::AppHandle) -> Result<u16, String> {
@@ -1249,13 +1302,18 @@ fn setup_system_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::E
     .item(&quit_item)
     .build()?;
 
-  // macOS uses a black template icon (the OS tints it for light/dark menu
-  // bars). Windows and Linux use the full-color icon, because neither tints a
-  // template — a black template would be invisible on dark Linux panels.
+  // macOS uses the black icon as a template — the OS tints it for the light or
+  // dark menu bar. Linux (and other non-Windows desktops) get a white-bodied
+  // icon with a dark outline so it stays legible on both dark and light
+  // panels: Tauri feeds the SNI/AppIndicator a fixed pixmap with no template
+  // tinting, so the icon has to carry its own contrast (a solid black icon is
+  // invisible on GNOME's dark top bar). Windows keeps its own solid icon.
   #[cfg(target_os = "macos")]
   let tray_icon_bytes: &[u8] = include_bytes!("../icons/tray-icon-44.png");
-  #[cfg(not(target_os = "macos"))]
+  #[cfg(target_os = "windows")]
   let tray_icon_bytes: &[u8] = include_bytes!("../icons/tray-icon-win-44.png");
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  let tray_icon_bytes: &[u8] = include_bytes!("../icons/tray-icon-linux-44.png");
   let tray_rgba = image::load_from_memory(tray_icon_bytes)?.into_rgba8();
   let (tray_w, tray_h) = tray_rgba.dimensions();
   let tray_image = tauri::image::Image::new_owned(tray_rgba.into_raw(), tray_w, tray_h);
@@ -1365,6 +1423,21 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_macos_permissions::init())
     .plugin(tauri_plugin_clipboard_manager::init())
+    // Persist window size/position across restarts. VISIBLE is excluded
+    // because the app hides to tray: restoring visibility would otherwise
+    // relaunch with an invisible window after quitting from the tray while
+    // hidden. FULLSCREEN is excluded because native fullscreen is disabled
+    // (the green button zooms instead) — the maximized flag captures the
+    // "filled screen" state, including green-button zoom on macOS.
+    .plugin(
+      tauri_plugin_window_state::Builder::default()
+        .with_state_flags(
+          tauri_plugin_window_state::StateFlags::all()
+            & !tauri_plugin_window_state::StateFlags::VISIBLE
+            & !tauri_plugin_window_state::StateFlags::FULLSCREEN,
+        )
+        .build(),
+    )
     .setup(|app| {
       // Recover ephemeral dir mappings from RAM-backed storage (tmpfs/ramdisk)
       ephemeral_dirs::recover_ephemeral_dirs();
@@ -1380,7 +1453,8 @@ pub fn run() {
       let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Donut Browser")
         .inner_size(880.0, 500.0)
-        .resizable(false)
+        .min_inner_size(640.0, 400.0)
+        .resizable(true)
         .fullscreen(false)
         .center()
         .focused(true)
@@ -1423,6 +1497,11 @@ pub fn run() {
       {
         if let Err(e) = window.set_transparent_titlebar(true) {
           log::warn!("Failed to set transparent titlebar: {e}");
+        }
+        // Green title-bar button maximizes (zoom) the window rather than
+        // entering immersive native fullscreen.
+        if let Err(e) = window.disable_native_fullscreen() {
+          log::warn!("Failed to disable native fullscreen: {e}");
         }
       }
 
@@ -2094,6 +2173,37 @@ pub fn run() {
         }
       });
 
+      // Start cloud auth background refresh loop
+      let app_handle_cloud = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+        // On startup, refresh sync token, proxy config, and wayfern token in
+        // PARALLEL. Previously they were awaited sequentially, so the wayfern
+        // token request didn't even start until the earlier two API calls had
+        // finished. Wayfern launch can race with this task — a few seconds of
+        // serialized API calls translates directly into a slow first launch
+        // because launch_wayfern blocks waiting for the token to land.
+        // api_call_with_retry handles 401/refresh internally — no direct
+        // refresh_access_token call needed.
+        if cloud_auth::CLOUD_AUTH.is_logged_in().await {
+          let sync_token_fut = async {
+            if let Err(e) = cloud_auth::CLOUD_AUTH.get_or_refresh_sync_token().await {
+              log::warn!("Failed to refresh cloud sync token on startup: {e}");
+            }
+          };
+          let proxy_fut = async {
+            cloud_auth::CLOUD_AUTH.sync_cloud_proxy().await;
+          };
+          let wayfern_fut = async {
+            if cloud_auth::CLOUD_AUTH.has_active_paid_subscription().await {
+              if let Err(e) = cloud_auth::CLOUD_AUTH.request_wayfern_token().await {
+                log::warn!("Failed to request wayfern token on startup: {e}");
+              }
+            }
+          };
+          tokio::join!(sync_token_fut, proxy_fut, wayfern_fut);
+        }
+        cloud_auth::CloudAuthManager::start_sync_token_refresh_loop(app_handle_cloud).await;
+      });
 
       Ok(())
     })
@@ -2228,6 +2338,9 @@ pub fn run() {
       check_wayfern_terms_accepted,
       check_wayfern_downloaded,
       accept_wayfern_terms,
+      get_commercial_trial_status,
+      acknowledge_trial_expiration,
+      has_acknowledged_trial_expiration,
       start_mcp_server,
       stop_mcp_server,
       get_mcp_server_status,
@@ -2247,6 +2360,23 @@ pub fn run() {
       disconnect_vpn,
       get_vpn_status,
       list_active_vpn_connections,
+      // Cloud auth commands
+      cloud_auth::cloud_exchange_device_code,
+      cloud_auth::cloud_get_user,
+      cloud_auth::cloud_refresh_profile,
+      cloud_auth::cloud_logout,
+      cloud_auth::cloud_get_proxy_usage,
+      cloud_auth::cloud_get_countries,
+      cloud_auth::cloud_get_regions,
+      cloud_auth::cloud_get_cities,
+      cloud_auth::cloud_get_isps,
+      cloud_auth::create_cloud_location_proxy,
+      cloud_auth::restart_sync_service,
+      cloud_auth::cloud_get_wayfern_token,
+      cloud_auth::cloud_refresh_wayfern_token,
+      // Team lock commands
+      team_lock::get_team_locks,
+      team_lock::get_team_lock_status,
       // Synchronizer commands
       synchronizer::start_sync_session,
       synchronizer::stop_sync_session,
@@ -2305,6 +2435,7 @@ mod tests {
       "update_extension",
       "set_extension_sync_enabled",
       "set_extension_group_sync_enabled",
+      "get_team_lock_status",
       "generate_sample_fingerprint",
       "cloud_get_wayfern_token",
       "cloud_refresh_wayfern_token",

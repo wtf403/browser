@@ -1492,7 +1492,7 @@ impl AppAutoUpdater {
 
       // Create the restart script content
       let script_content = format!(
-        r#"#!/bin/bash
+        r#"#!/bin/sh
 # Wait for the current process to exit
 while kill -0 {} 2>/dev/null; do
   sleep 0.5
@@ -1521,7 +1521,7 @@ rm "{}"
         .output();
 
       // Execute the restart script in the background
-      let mut cmd = Command::new("bash");
+      let mut cmd = Command::new("sh");
       cmd.arg(script_path.to_str().unwrap());
 
       // Detach the process completely
@@ -1668,7 +1668,7 @@ rm "{}"
 
       // Create the restart script content
       let script_content = format!(
-        r#"#!/bin/bash
+        r#"#!/bin/sh
 # Wait for the current process to exit
 while kill -0 {} 2>/dev/null; do
   sleep 0.5
@@ -1697,7 +1697,7 @@ rm "{}"
         .output();
 
       // Execute the restart script in the background
-      let mut cmd = Command::new("bash");
+      let mut cmd = Command::new("sh");
       cmd.arg(script_path.to_str().unwrap());
 
       // Detach the process completely
@@ -1724,27 +1724,56 @@ rm "{}"
 
 #[tauri::command]
 pub async fn check_for_app_updates() -> Result<Option<AppUpdateInfo>, String> {
-  log::info!("App auto-updates are disabled");
-  Ok(None)
+  if crate::app_dirs::is_portable() {
+    log::info!("App auto-updates disabled in portable mode");
+    return Ok(None);
+  }
+  // The disable_auto_updates setting controls app self-updates only
+  let disabled = crate::settings_manager::SettingsManager::instance()
+    .load_settings()
+    .map(|s| s.disable_auto_updates)
+    .unwrap_or(false);
+  if disabled {
+    log::info!("App auto-updates disabled by user setting");
+    return Ok(None);
+  }
+
+  let updater = AppAutoUpdater::instance();
+  updater
+    .check_for_updates()
+    .await
+    .map_err(|e| format!("Failed to check for app updates: {e}"))
 }
 
 #[tauri::command]
 pub async fn download_and_prepare_app_update(
-  _app_handle: tauri::AppHandle,
-  _update_info: AppUpdateInfo,
+  app_handle: tauri::AppHandle,
+  update_info: AppUpdateInfo,
 ) -> Result<(), String> {
-  Err("App auto-updates are disabled".to_string())
+  let updater = AppAutoUpdater::instance();
+  updater
+    .download_and_prepare_update(&app_handle, &update_info)
+    .await
+    .map_err(|e| format!("Failed to download and prepare app update: {e}"))
 }
 
 #[tauri::command]
 pub async fn restart_application() -> Result<(), String> {
-  Err("App auto-updates are disabled".to_string())
+  let updater = AppAutoUpdater::instance();
+  updater
+    .restart_application()
+    .await
+    .map_err(|e| format!("Failed to restart application: {e}"))
 }
 
 #[tauri::command]
 pub async fn check_for_app_updates_manual() -> Result<Option<AppUpdateInfo>, String> {
-  log::info!("App auto-updates are disabled");
-  Ok(None)
+  log::info!("Manual app update check triggered");
+  let updater = AppAutoUpdater::instance();
+  updater
+    .check_for_updates()
+    .await
+    .map_err(|e| format!("Failed to check for app updates: {e}"))
 }
 
 #[cfg(test)]

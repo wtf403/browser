@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { translateBackendError } from "@/lib/backend-errors";
 import type { StoredProxy } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
@@ -127,9 +128,11 @@ export function ProxyFormDialog({
       onClose();
     } catch (error) {
       console.error("Failed to save proxy:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      toast.error(t("proxies.form.saveFailed", { error: errorMessage }));
+      toast.error(
+        t("proxies.form.saveFailed", {
+          error: translateBackendError(t, error),
+        }),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -158,7 +161,7 @@ export function ProxyFormDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
+        <div className="@container grid gap-4 py-4">
           <div className="grid gap-2">
             <Label htmlFor="proxy-name">{t("proxies.form.name")}</Label>
             <Input
@@ -228,12 +231,12 @@ export function ProxyFormDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="proxy-username">
                 {form.proxy_type === "ss"
                   ? t("proxies.form.cipher")
-                  : `${t("proxies.form.username")} (${t("proxies.form.usernamePlaceholder")})`}
+                  : t("proxies.form.username")}
               </Label>
               <Input
                 id="proxy-username"
@@ -252,9 +255,7 @@ export function ProxyFormDialog({
 
             <div className="grid gap-2">
               <Label htmlFor="proxy-password">
-                {form.proxy_type === "ss"
-                  ? t("proxies.form.password")
-                  : `${t("proxies.form.password")} (${t("proxies.form.passwordPlaceholder")})`}
+                {t("proxies.form.password")}
               </Label>
               <Input
                 id="proxy-password"

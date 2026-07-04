@@ -90,7 +90,9 @@
       "unknown": "Đã xảy ra lỗi không xác định"
     },
     "window": {
-      "minimize": "Thu nhỏ"
+      "minimize": "Thu nhỏ",
+      "maximize": "Phóng to",
+      "restore": "Khôi phục"
     },
     "commandPalette": {
       "title": "Bảng lệnh",
@@ -173,6 +175,15 @@
         "mismatchToast": "Mật khẩu không khớp"
       }
     },
+    "commercial": {
+      "title": "Giấy phép thương mại",
+      "trialActive": "Dùng thử: còn {{days}} ngày, {{hours}} giờ",
+      "trialActiveDescription": "Sử dụng thương mại miễn phí trong thời gian dùng thử. Khi hết hạn, tất cả tính năng vẫn hoạt động — sử dụng cá nhân miễn phí, chỉ sử dụng thương mại mới cần giấy phép.",
+      "trialExpired": "Đã hết hạn dùng thử",
+      "trialExpiredDescription": "Sử dụng cá nhân vẫn miễn phí. Sử dụng thương mại cần giấy phép.",
+      "subscriptionActive": "Đã đăng ký — gói {{plan}}",
+      "subscriptionActiveDescription": "Đăng ký Donut Browser của bạn đang hoạt động. Sử dụng thương mại được cấp phép trong thời hạn gói."
+    },
     "advanced": {
       "title": "Nâng cao",
       "clearCache": "Xóa toàn bộ bộ nhớ đệm phiên bản",
@@ -183,6 +194,8 @@
       "copyLogsSuccess": "Đã sao chép nhật ký vào clipboard",
       "copyLogsDescription": "Đóng gói các file nhật ký gần nhất (tối đa 5 MB) vào clipboard để chia sẻ trong báo cáo lỗi."
     },
+    "disableAutoUpdates": "Tắt tự động cập nhật ứng dụng",
+    "disableAutoUpdatesDescription": "Ngăn ứng dụng tự động kiểm tra và cài đặt bản cập nhật Donut Browser. Cập nhật trình duyệt không bị ảnh hưởng.",
     "keepDecryptedProfilesInRam": "Giữ hồ sơ đã giải mã trong RAM",
     "keepDecryptedProfilesInRamDescription": "Giữ bản sao đã giải mã trong RAM của hồ sơ được bảo vệ bằng mật khẩu giữa các lần khởi chạy để khởi động nhanh hơn. Bản sao trên ổ đĩa vẫn được mã hóa."
   },
@@ -228,7 +241,11 @@
       "extDefault": "Mặc định",
       "dnsLevel": "Danh sách chặn DNS: {{level}}",
       "extSearch": "Tìm kiếm nhóm…",
-      "extEmpty": "Không có nhóm tiện ích"
+      "extEmpty": "Không có nhóm tiện ích",
+      "cantModifyRunning": "Không thể chỉnh sửa profile đang chạy",
+      "cantModifyLaunching": "Không thể chỉnh sửa profile khi đang khởi chạy",
+      "cantModifyStopping": "Không thể chỉnh sửa profile khi đang dừng",
+      "cantModifyUpdating": "Không thể chỉnh sửa profile khi trình duyệt đang cập nhật"
     },
     "actions": {
       "launch": "Khởi chạy",
@@ -288,11 +305,32 @@
       "assignToGroup": "Gán vào nhóm",
       "assignProxy": "Gán Proxy",
       "assignExtensionGroup": "Gán nhóm tiện ích",
-      "copyCookies": "Sao chép Cookie"
+      "copyCookies": "Sao chép Cookie",
+      "runSelected": "Chạy mục đã chọn",
+      "stopSelected": "Dừng mục đã chọn",
+      "proRequired": "Cần gói Pro để chạy/dừng hàng loạt"
     },
     "passwordProtectedBadge": "Được bảo vệ bằng mật khẩu",
     "launchHook": {
       "placeholder": "https://example.com/track-launch"
+    },
+    "bulkRun": {
+      "confirmTitle": "Chạy {{count}} hồ sơ?",
+      "confirmDescription": "Khởi chạy {{count}} hồ sơ cùng lúc có thể tiêu tốn nhiều tài nguyên hệ thống. Tiếp tục?",
+      "confirmButton": "Chạy {{count}}",
+      "noneToRun": "Không có hồ sơ nào được chọn để chạy."
+    },
+    "bulkStop": {
+      "confirmTitle": "Dừng {{count}} hồ sơ?",
+      "confirmDescription": "Dừng {{count}} hồ sơ đang chạy?",
+      "confirmButton": "Dừng {{count}}",
+      "noneToStop": "Không có hồ sơ nào được chọn để dừng."
+    },
+    "sort": {
+      "nameAsc": "Tên (A–Z)",
+      "nameDesc": "Tên (Z–A)",
+      "newest": "Mới nhất trước",
+      "oldest": "Cũ nhất trước"
     }
   },
   "createProfile": {
@@ -384,6 +422,7 @@
       "newProxy": "Proxy mới",
       "newVpn": "VPN mới",
       "protocolCol": "Giao thức",
+      "hostPort": "Máy chủ : cổng",
       "title": "Proxy & VPN"
     },
     "add": "Thêm Proxy",
@@ -628,7 +667,11 @@
       "profileSynced": "Đã đồng bộ profile '{{name}}' thành công",
       "profileSyncFailed": "Đồng bộ profile '{{name}}' thất bại",
       "profileSyncFailedWithError": "Đồng bộ profile '{{name}}' thất bại: {{error}}"
-    }
+    },
+    "enabledToast": "Đã bật đồng bộ",
+    "disabledToast": "Đã tắt đồng bộ",
+    "enabledDescription": "Đồng bộ profile đã được bật",
+    "disabledDescription": "Đồng bộ profile đã được tắt"
   },
   "integrations": {
     "title": "Tích hợp",
@@ -907,6 +950,11 @@
       "syncingProfile": "Đang đồng bộ profile '{{name}}'...",
       "syncingProfileWithProgress": "{{count}} tệp ({{size}})",
       "updatingVersions": "Đang cập nhật phiên bản trình duyệt..."
+    },
+    "progress": {
+      "remaining": "còn {{time}}",
+      "filesProgress": "{{completed}}/{{total}} tệp",
+      "filesFailed": "{{count}} tệp thất bại"
     }
   },
   "errors": {
@@ -1107,7 +1155,8 @@
       "proxy": "PROXY",
       "vpn": "VPN",
       "cookieCount": "Cookie đã lưu",
-      "localDataTransfer": "Truyền dữ liệu cục bộ"
+      "localDataTransfer": "Truyền dữ liệu cục bộ",
+      "created": "Đã tạo"
     },
     "values": {
       "none": "Không có",
@@ -1116,7 +1165,8 @@
       "yes": "Có",
       "activeNow": "Đang hoạt động",
       "direct": "Trực tiếp",
-      "loading": "Đang tải…"
+      "loading": "Đang tải…",
+      "unknown": "Không rõ"
     },
     "network": {
       "bypassRules": "Quy tắc bỏ qua proxy",
@@ -1125,7 +1175,9 @@
       "addRule": "Thêm quy tắc",
       "rulePlaceholder": "ví dụ: example.com, 192.168.1.*, .*\\.local",
       "noRules": "Chưa cấu hình quy tắc bỏ qua nào.",
-      "ruleTypes": "Hỗ trợ tên máy chủ, địa chỉ IP và biểu thức chính quy."
+      "ruleTypes": "Hỗ trợ tên máy chủ, địa chỉ IP và biểu thức chính quy.",
+      "vpnLabel": "VPN: {{name}}",
+      "proxyLabel": "Proxy: {{name}}"
     },
     "launchHook": {
       "title": "URL hook khởi chạy",
@@ -1187,6 +1239,12 @@
       "notSupported": "Chỉnh sửa vân tay chỉ khả dụng cho profile Camoufox và Wayfern.",
       "lockedTitle": "Xem và chỉnh sửa vân tay là tính năng Pro",
       "lockedDescription": "Bảo vệ vân tay được bao gồm trong mọi gói. Việc xem và chỉnh sửa các giá trị vân tay của profile mới là phần yêu cầu gói trả phí đang hoạt động."
+    },
+    "syncStatusValue": {
+      "waiting": "Đang chờ",
+      "syncing": "Đang đồng bộ",
+      "synced": "Đã đồng bộ",
+      "error": "Lỗi"
     }
   },
   "extensions": {
@@ -1532,6 +1590,14 @@
     "acceptFailed": "Chấp nhận điều khoản thất bại",
     "tryAgain": "Vui lòng thử lại"
   },
+  "commercialTrial": {
+    "title": "Thời gian dùng thử thương mại đã hết",
+    "description": "Thời gian dùng thử thương mại 2 tuần của bạn đã kết thúc.",
+    "body": "Nếu bạn sử dụng Donut Browser cho mục đích thương mại, bạn cần mua giấy phép thương mại để tiếp tục. Bạn vẫn có thể sử dụng miễn phí cho mục đích cá nhân.",
+    "understandButton": "Tôi hiểu",
+    "failed": "Lưu xác nhận thất bại",
+    "tryAgain": "Vui lòng thử lại"
+  },
   "permissionDialog": {
     "titleMicrophone": "Yêu cầu quyền truy cập micro",
     "titleCamera": "Yêu cầu quyền truy cập camera",
@@ -1699,7 +1765,8 @@
       "updateStartedDescription": "Quá trình tải phiên bản {{version}} sẽ sớm bắt đầu. Việc khởi chạy trình duyệt bị tắt cho đến khi cập nhật hoàn tất.",
       "downloadStarting": "Đang bắt đầu tải {{browser}} {{version}}",
       "downloadProgressBelow": "Tiến trình tải sẽ hiển thị bên dưới...",
-      "autoDownloadStarted": "Đang tự động tải {{browser}} {{version}}. Tiến trình sẽ hiển thị bên dưới."
+      "autoDownloadStarted": "Đang tự động tải {{browser}} {{version}}. Tiến trình sẽ hiển thị bên dưới.",
+      "lookingForUpdates": "Đang tìm bản cập nhật cho {{browser}}"
     }
   },
   "profilePassword": {
@@ -1777,6 +1844,7 @@
     "passwordTooShort": "Mật khẩu phải có ít nhất {{min}} ký tự",
     "proxyNotFound": "Không tìm thấy proxy",
     "groupNotFound": "Không tìm thấy nhóm",
+    "groupAlreadyExists": "Đã tồn tại một nhóm với tên này",
     "vpnNotFound": "Không tìm thấy VPN",
     "extensionNotFound": "Không tìm thấy tiện ích",
     "extensionGroupNotFound": "Không tìm thấy nhóm tiện ích",
@@ -1791,7 +1859,8 @@
     "fingerprintRequiresPro": "Xem hoặc chỉnh sửa vân tay yêu cầu gói trả phí đang hoạt động. Tính năng bảo vệ được bao gồm trong mọi gói.",
     "proxyNotWorking": "Proxy đã chọn không hoạt động, nên profile chưa được tạo.",
     "proxyPaymentRequired": "Proxy đã chọn yêu cầu thanh toán (402) — gói đăng ký của nó có thể đã hết hạn — nên profile chưa được tạo.",
-    "vpnNotWorking": "VPN đã chọn không hoạt động, nên profile chưa được tạo."
+    "vpnNotWorking": "VPN đã chọn không hoạt động, nên profile chưa được tạo.",
+    "camoufoxImportDeprecated": "Không còn hỗ trợ nhập profile dựa trên Firefox (Camoufox). Camoufox đang bị ngừng hỗ trợ — vui lòng dùng Wayfern."
   },
   "rail": {
     "profiles": "Profile",
@@ -1920,7 +1989,7 @@
   },
   "browserSupport": {
     "endingSoonTitle": "Hỗ trợ trình duyệt sắp kết thúc",
-    "endingSoonDescription": "Hỗ trợ cho các profile sau sẽ bị gỡ bỏ vào ngày 15 tháng 3 năm 2026: {{profiles}}. Vui lòng chuyển sang profile Wayfern hoặc Camoufox."
+    "endingSoonDescription": "Hỗ trợ cho các profile sau sẽ bị gỡ bỏ vào ngày 15 tháng 3 năm 2026: {{profiles}}. Vui lòng chuyển sang profile Wayfern."
   },
   "onboarding": {
     "steps": {
@@ -1993,7 +2062,19 @@
       "body": "Donut Browser là mã nguồn mở và miễn phí sử dụng.",
       "agree": "Tôi hiểu",
       "personalTitle": "Sử dụng cá nhân",
-      "personalDesc": "Miễn phí vĩnh viễn."
+      "personalDesc": "Miễn phí vĩnh viễn.",
+      "commercialTitle": "Sử dụng thương mại",
+      "trialBadge": "2 tuần miễn phí",
+      "commercialDesc": "Miễn phí dùng thử 2 tuần. Sau đó, gói trả phí giúp dự án được duy trì và phát triển."
     }
+  },
+  "wayfernBlocked": {
+    "title": "Tự động hóa trình duyệt đã tạm dừng",
+    "description": "Tài khoản của bạn tạm thời bị hạn chế các tính năng Pro của trình duyệt, thường do đăng nhập trên nhiều thiết bị cùng lúc. Hãy đăng xuất khỏi các thiết bị khác rồi khởi chạy lại profile để khôi phục."
+  },
+  "camoufoxDeprecation": {
+    "title": "Hỗ trợ Camoufox sắp kết thúc",
+    "description": "Hỗ trợ cho các profile Camoufox sẽ kết thúc vào ngày 8 tháng 7 năm 2026. Bạn có một hoặc nhiều profile Camoufox. Hãy chuyển chúng sang Wayfern trước thời điểm đó — sau ngày này, các profile Camoufox có thể ngừng hoạt động.",
+    "acknowledge": "Đã hiểu"
   }
 }

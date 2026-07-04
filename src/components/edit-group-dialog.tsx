@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { translateBackendError } from "@/lib/backend-errors";
 import type { ProfileGroup } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
@@ -61,8 +62,7 @@ export function EditGroupDialog({
       onClose();
     } catch (err) {
       console.error("Failed to update group:", err);
-      const errorMessage =
-        err instanceof Error ? err.message : t("groups.updateFailed");
+      const errorMessage = translateBackendError(t, err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -103,7 +103,7 @@ export function EditGroupDialog({
           </div>
 
           {error && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}

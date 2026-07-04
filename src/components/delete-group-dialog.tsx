@@ -16,6 +16,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { translateBackendError } from "@/lib/backend-errors";
 import type { BrowserProfile, ProfileGroup } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
@@ -97,8 +98,7 @@ export function DeleteGroupDialog({
       onClose();
     } catch (err) {
       console.error("Failed to delete group:", err);
-      const errorMessage =
-        err instanceof Error ? err.message : t("groups.deleteFailed");
+      const errorMessage = translateBackendError(t, err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -136,10 +136,10 @@ export function DeleteGroupDialog({
                         count: associatedProfiles.length,
                       })}
                     </Label>
-                    <ScrollArea className="h-32 w-full border rounded-md p-3">
+                    <ScrollArea className="max-h-[min(8rem,25vh)] w-full overflow-y-auto rounded-md border p-3">
                       <div className="space-y-1">
                         {associatedProfiles.map((profile) => (
-                          <div key={profile.id} className="text-sm">
+                          <div key={profile.id} className="truncate text-sm">
                             • {profile.name}
                           </div>
                         ))}
@@ -184,7 +184,7 @@ export function DeleteGroupDialog({
           )}
 
           {error && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}

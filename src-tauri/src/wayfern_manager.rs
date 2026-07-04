@@ -39,6 +39,12 @@ pub struct WayfernConfig {
   pub block_webgl: Option<bool>,
   #[serde(default, skip_serializing)]
   pub proxy: Option<String>,
+  /// Stable signature of the proxy/VPN/geoip the fingerprint's location data
+  /// (timezone, latitude/longitude, language) was last computed for. Compared
+  /// on launch to detect that the routing changed since creation, so the
+  /// location can be refreshed instead of showing stale data.
+  #[serde(default)]
+  pub geo_proxy_signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +269,130 @@ impl WayfernManager {
     Err("No response received from CDP".into())
   }
 
+  /// Stable signature describing what determines this profile's geolocation
+  /// (timezone, latitude/longitude, language): the geoip mode first, then the
+  /// VPN, the proxy, or a direct connection. Compared across creation and
+  /// launch to detect a change. The VPN case keys off `vpn_id` rather than the
+  /// per-launch local port, and the proxy case off type/host/port/username so
+  /// that editing the proxy is also caught.
+  pub fn geo_signature(
+    proxy: Option<&crate::browser::ProxySettings>,
+    vpn_id: Option<&str>,
+    geoip: Option<&serde_json::Value>,
+  ) -> String {
+    match geoip {
+      Some(serde_json::Value::Bool(false)) => "off".to_string(),
+      Some(serde_json::Value::String(ip)) if !ip.is_empty() => format!("ip:{ip}"),
+      _ => {
+        if let Some(id) = vpn_id {
+          format!("vpn:{id}")
+        } else if let Some(p) = proxy {
+          format!(
+            "proxy:{}://{}@{}:{}",
+            p.proxy_type.to_lowercase(),
+            p.username.as_deref().unwrap_or(""),
+            p.host,
+            p.port
+          )
+        } else {
+          "direct".to_string()
+        }
+      }
+    }
+  }
+
+  /// Apply timezone/geolocation fields to a fingerprint object from the proxy's
+  /// exit IP (or a fixed geoip IP). Mutates `fingerprint` in place. Returns true
+  /// if fresh geolocation was fetched and applied, false if geolocation is
+  /// disabled or could not be resolved (in which case only safe defaults are
+  /// filled in). Shared by fingerprint generation and the launch-time refresh
+  /// so both produce identical location data.
+  async fn apply_geolocation(
+    fingerprint: &mut serde_json::Value,
+    proxy: Option<&str>,
+    geoip: Option<&serde_json::Value>,
+  ) -> bool {
+    // Default to auto-detect; only an explicit `false` disables geolocation.
+    let should_geolocate = !matches!(geoip, Some(serde_json::Value::Bool(false)));
+    if !should_geolocate {
+      return false;
+    }
+
+    let geo_result = async {
+      let ip = match geoip {
+        Some(serde_json::Value::String(ip_str)) => ip_str.clone(),
+        _ => crate::ip_utils::fetch_public_ip(proxy)
+          .await
+          .map_err(|e| format!("Failed to fetch public IP: {e}"))?,
+      };
+      crate::camoufox::geolocation::get_geolocation(&ip)
+        .map_err(|e| format!("Failed to get geolocation for IP {ip}: {e}"))
+    }
+    .await;
+
+    match geo_result {
+      Ok(geo) => {
+        if let Some(obj) = fingerprint.as_object_mut() {
+          obj.insert("timezone".to_string(), json!(geo.timezone));
+          // Calculate timezone offset from IANA timezone name
+          if let Ok(tz) = geo.timezone.parse::<chrono_tz::Tz>() {
+            use chrono::Offset;
+            let now = chrono::Utc::now().with_timezone(&tz);
+            let offset_seconds = now.offset().fix().local_minus_utc();
+            let offset_minutes = -(offset_seconds / 60);
+            obj.insert("timezoneOffset".to_string(), json!(offset_minutes));
+          }
+          obj.insert("latitude".to_string(), json!(geo.latitude));
+          obj.insert("longitude".to_string(), json!(geo.longitude));
+          let locale_str = geo.locale.as_string();
+          obj.insert("language".to_string(), json!(&locale_str));
+          obj.insert(
+            "languages".to_string(),
+            json!([&locale_str, &geo.locale.language]),
+          );
+        }
+        log::info!(
+          "Applied geolocation to Wayfern fingerprint: {} ({})",
+          geo.locale.as_string(),
+          geo.timezone
+        );
+        true
+      }
+      Err(e) => {
+        log::warn!("Geolocation failed, using defaults: {e}");
+        if let Some(obj) = fingerprint.as_object_mut() {
+          if !obj.contains_key("timezone") {
+            obj.insert("timezone".to_string(), json!("America/New_York"));
+          }
+          if !obj.contains_key("timezoneOffset") {
+            obj.insert("timezoneOffset".to_string(), json!(300));
+          }
+        }
+        false
+      }
+    }
+  }
+
+  /// Refresh ONLY the location fields (timezone, offset, latitude/longitude,
+  /// language) of an already-generated fingerprint to match the current proxy,
+  /// leaving every other fingerprint field untouched. `proxy` is the local
+  /// proxy URL the browser will use. Returns the updated fingerprint JSON on
+  /// success, or None if geolocation is disabled or could not be resolved, in
+  /// which case the caller keeps the existing fingerprint and retries on the
+  /// next launch.
+  pub async fn refresh_fingerprint_geolocation(
+    fingerprint_json: &str,
+    proxy: Option<&str>,
+    geoip: Option<&serde_json::Value>,
+  ) -> Option<String> {
+    let mut fp: serde_json::Value = serde_json::from_str(fingerprint_json).ok()?;
+    if Self::apply_geolocation(&mut fp, proxy, geoip).await {
+      serde_json::to_string(&fp).ok()
+    } else {
+      None
+    }
+  }
+
   pub async fn generate_fingerprint_config(
     &self,
     _app_handle: &AppHandle,
@@ -393,7 +523,15 @@ impl WayfernManager {
         "windows"
       });
 
-    let refresh_params = json!({ "operatingSystem": os });
+    // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
+    let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+    let mut refresh_params = json!({ "operatingSystem": os });
+    if let Some(ref token) = wayfern_token {
+      refresh_params
+        .as_object_mut()
+        .unwrap()
+        .insert("wayfernToken".to_string(), json!(token));
+    }
 
     let refresh_result = self
       .send_cdp_command(&ws_url, "Wayfern.refreshFingerprint", refresh_params)
@@ -416,70 +554,14 @@ impl WayfernManager {
         // Normalize the fingerprint: convert JSON string fields to proper types
         let mut normalized = Self::normalize_fingerprint(fp);
 
-        // Apply geolocation based on proxy IP or geoip config
-        let geoip_option = config.geoip.as_ref();
-        let should_geolocate = match geoip_option {
-          Some(serde_json::Value::Bool(false)) => false,
-          _ => true, // Default to auto-detect
-        };
-
-        if should_geolocate {
-          let geo_result = async {
-            let ip = match geoip_option {
-              Some(serde_json::Value::String(ip_str)) => ip_str.clone(),
-              _ => {
-                // Auto-detect IP, optionally through proxy
-                crate::ip_utils::fetch_public_ip(config.proxy.as_deref())
-                  .await
-                  .map_err(|e| format!("Failed to fetch public IP: {e}"))?
-              }
-            };
-
-            crate::camoufox::geolocation::get_geolocation(&ip)
-              .map_err(|e| format!("Failed to get geolocation for IP {ip}: {e}"))
-          }
-          .await;
-
-          match geo_result {
-            Ok(geo) => {
-              if let Some(obj) = normalized.as_object_mut() {
-                obj.insert("timezone".to_string(), json!(geo.timezone));
-                // Calculate timezone offset from IANA timezone name
-                if let Ok(tz) = geo.timezone.parse::<chrono_tz::Tz>() {
-                  use chrono::Offset;
-                  let now = chrono::Utc::now().with_timezone(&tz);
-                  let offset_seconds = now.offset().fix().local_minus_utc();
-                  let offset_minutes = -(offset_seconds / 60);
-                  obj.insert("timezoneOffset".to_string(), json!(offset_minutes));
-                }
-                obj.insert("latitude".to_string(), json!(geo.latitude));
-                obj.insert("longitude".to_string(), json!(geo.longitude));
-                let locale_str = geo.locale.as_string();
-                obj.insert("language".to_string(), json!(&locale_str));
-                obj.insert(
-                  "languages".to_string(),
-                  json!([&locale_str, &geo.locale.language]),
-                );
-              }
-              log::info!(
-                "Applied geolocation to Wayfern fingerprint: {} ({})",
-                geo.locale.as_string(),
-                geo.timezone
-              );
-            }
-            Err(e) => {
-              log::warn!("Geolocation failed, using defaults: {e}");
-              if let Some(obj) = normalized.as_object_mut() {
-                if !obj.contains_key("timezone") {
-                  obj.insert("timezone".to_string(), json!("America/New_York"));
-                }
-                if !obj.contains_key("timezoneOffset") {
-                  obj.insert("timezoneOffset".to_string(), json!(300));
-                }
-              }
-            }
-          }
-        }
+        // Apply timezone/geolocation for the proxy this fingerprint is being
+        // generated against. Shared with the launch-time location refresh.
+        Self::apply_geolocation(
+          &mut normalized,
+          config.proxy.as_deref(),
+          config.geoip.as_ref(),
+        )
+        .await;
 
         normalized
       }
@@ -643,7 +725,12 @@ impl WayfernManager {
       "--disable-session-crashed-bubble".to_string(),
       "--hide-crash-restore-bubble".to_string(),
       "--disable-infobars".to_string(),
-      "--disable-features=DialMediaRouteProvider,DnsOverHttps,AsyncDns".to_string(),
+      // Prefetch* / NoStatePrefetch: cross-site Speculation-Rules prefetch uses
+      // an isolated NetworkContext that defaults to DIRECT egress (real host IP
+      // leaks past the per-profile proxy). Disabling via a LAUNCH FLAG cannot be
+      // re-enabled by an imported/synced network_prediction_options pref (which a
+      // compile-time pref default could be).
+      "--disable-features=DialMediaRouteProvider,DnsOverHttps,AsyncDns,Prefetch,PrefetchProxy,SpeculationRulesPrefetchFuture,NoStatePrefetch".to_string(),
       "--use-mock-keychain".to_string(),
       "--password-store=basic".to_string(),
     ];
@@ -683,10 +770,53 @@ impl WayfernManager {
       args.push(format!("--load-extension={}", extension_paths.join(",")));
     }
 
+    let mut wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+    if wayfern_token.is_none()
+      && crate::cloud_auth::CLOUD_AUTH
+        .has_active_paid_subscription()
+        .await
+    {
+      // Brief wait for the background token fetch — when the API is healthy
+      // the token usually lands in well under a second. If api.donutbrowser.com
+      // is unreachable we don't want to gate the whole launch on it; the
+      // browser still works without the token (cross-OS fingerprinting just
+      // won't be enabled for this session, and the next launch will pick it
+      // up once the token arrives).
+      log::info!("Wayfern token not ready for paid user, waiting briefly...");
+      for _ in 0..3 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+        if wayfern_token.is_some() {
+          break;
+        }
+      }
+      if wayfern_token.is_none() {
+        log::warn!(
+          "Wayfern token still unavailable after wait; launching without it (api.donutbrowser.com may be unreachable)"
+        );
+      }
+    }
+    if let Some(ref token) = wayfern_token {
+      args.push(format!("--wayfern-token={token}"));
+      log::info!("Wayfern token passed as CLI flag (length: {})", token.len());
+    }
+
     if let Some(proxy) = proxy_url {
+      // Map the local proxy scheme to the matching PAC directive. SOCKS5 lets
+      // Chromium route UDP (QUIC/WebRTC) and resolve DNS through the proxy;
+      // PROXY is HTTP CONNECT (TCP only). The host:port is the same either way.
+      let (pac_directive, host_port) = if let Some(rest) = proxy.strip_prefix("socks5://") {
+        ("SOCKS5", rest)
+      } else {
+        (
+          "PROXY",
+          proxy
+            .trim_start_matches("http://")
+            .trim_start_matches("https://"),
+        )
+      };
       let pac_data = format!(
-        "data:application/x-ns-proxy-autoconfig,function FindProxyForURL(url,host){{return \"PROXY {}\";}}",
-        proxy.trim_start_matches("http://").trim_start_matches("https://")
+        "data:application/x-ns-proxy-autoconfig,function FindProxyForURL(url,host){{return \"{pac_directive} {host_port}\";}}",
       );
       args.push(format!("--proxy-pac-url={pac_data}"));
       args.push("--dns-prefetch-disable".to_string());
@@ -786,7 +916,13 @@ impl WayfernManager {
       }
 
       // Include wayfern token if available (enables cross-OS fingerprinting for paid users)
+      let wayfern_token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
       let mut fingerprint_params = fingerprint_for_cdp.clone();
+      if let Some(ref token) = wayfern_token {
+        if let Some(obj) = fingerprint_params.as_object_mut() {
+          obj.insert("wayfernToken".to_string(), json!(token));
+        }
+      }
 
       for target in &page_targets {
         if let Some(ws_url) = &target.websocket_debugger_url {

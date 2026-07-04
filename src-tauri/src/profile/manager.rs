@@ -1,6 +1,7 @@
 use crate::api_client::is_browser_version_nightly;
 use crate::browser::{create_browser, BrowserType, ProxySettings};
 use crate::camoufox_manager::CamoufoxConfig;
+use crate::cloud_auth::CLOUD_AUTH;
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
 use crate::profile::types::{get_host_os, BrowserProfile, SyncMode};
@@ -92,7 +93,13 @@ impl ProfileManager {
 
     let launch_hook = Self::normalize_launch_hook(launch_hook)?;
 
-    // Cloud proxy features removed - skip sync
+    // Sync cloud proxy credentials if the profile uses a cloud or cloud-derived proxy
+    if let Some(ref pid) = proxy_id {
+      if PROXY_MANAGER.is_cloud_or_derived(pid) || pid == crate::proxy_manager::CLOUD_PROXY_ID {
+        log::info!("Syncing cloud proxy credentials before profile creation");
+        CLOUD_AUTH.sync_cloud_proxy().await;
+      }
+    }
 
     log::info!("Attempting to create profile: {name}");
 
@@ -318,6 +325,19 @@ impl ProfileManager {
       } else {
         log::info!("Using provided fingerprint for Wayfern profile: {name}");
       }
+
+      // Record which proxy/geoip the fingerprint's location data was computed
+      // for. On launch this is compared against the profile's current routing
+      // so a proxy that was changed after creation triggers a location refresh
+      // instead of showing a stale timezone.
+      config.geo_proxy_signature = Some(crate::wayfern_manager::WayfernManager::geo_signature(
+        proxy_id
+          .as_ref()
+          .and_then(|id| PROXY_MANAGER.get_proxy_settings_by_id(id))
+          .as_ref(),
+        None,
+        config.geoip.as_ref(),
+      ));
 
       // Clear the proxy from config after fingerprint generation
       config.proxy = None;
@@ -1028,7 +1048,7 @@ impl ProfileManager {
       fs::create_dir_all(&dest_dir)?;
     }
 
-    let new_profile = BrowserProfile {
+    let mut new_profile = BrowserProfile {
       id: new_id,
       name: clone_name,
       browser: source.browser,
@@ -1063,6 +1083,21 @@ impl ProfileManager {
       ),
       updated_at: Some(crate::proxy_manager::now_secs()),
     };
+
+    // Donut: a clone must NOT be linkable to its source. The source
+    // wayfern_config embeds the persisted fingerprint JSON (including the
+    // canvas_noise_seed), so copying it verbatim makes the clone emit
+    // BYTE-IDENTICAL canvas/WebGL/audio readback hashes and identical device
+    // signals as the source — trivially linkable if both run concurrently. Clear
+    // the fingerprint so the launch path mints a fresh one (a new
+    // canvas_noise_seed via RandBytes + an independent device fingerprint),
+    // exactly as create_profile does when fingerprint.is_none(). NOTE: the
+    // user-data-dir copy above still duplicates cookies/localStorage/TLS state —
+    // a separate storage-linkage vector the user must clear if they want full
+    // isolation between a clone and its source.
+    if let Some(cfg) = new_profile.wayfern_config.as_mut() {
+      cfg.fingerprint = None;
+    }
 
     self.save_profile(&new_profile)?;
 
@@ -2450,6 +2485,18 @@ pub async fn create_browser_profile_new(
   dns_blocklist: Option<String>,
   launch_hook: Option<String>,
 ) -> Result<BrowserProfile, String> {
+  let fingerprint_os = camoufox_config
+    .as_ref()
+    .and_then(|c| c.os.as_deref())
+    .or_else(|| wayfern_config.as_ref().and_then(|c| c.os.as_deref()));
+
+  if !crate::cloud_auth::CLOUD_AUTH
+    .is_fingerprint_os_allowed(fingerprint_os)
+    .await
+  {
+    return Err("Fingerprint OS spoofing requires an active Pro subscription".to_string());
+  }
+
   // A dead/unreachable proxy or VPN (or a 402 from an expired proxy
   // subscription) cancels creation with a translatable error.
   crate::validate_profile_network(proxy_id.as_deref(), vpn_id.as_deref()).await?;
@@ -2480,6 +2527,21 @@ pub async fn update_camoufox_config(
   profile_id: String,
   config: CamoufoxConfig,
 ) -> Result<(), String> {
+  if config.fingerprint.is_some()
+    && !crate::cloud_auth::CLOUD_AUTH
+      .can_use_cross_os_fingerprints()
+      .await
+  {
+    return Err(serde_json::json!({ "code": "FINGERPRINT_REQUIRES_PRO" }).to_string());
+  }
+
+  if !crate::cloud_auth::CLOUD_AUTH
+    .is_fingerprint_os_allowed(config.os.as_deref())
+    .await
+  {
+    return Err("Fingerprint OS spoofing requires an active Pro subscription".to_string());
+  }
+
   let profile_manager = ProfileManager::instance();
   profile_manager
     .update_camoufox_config(app_handle, &profile_id, config)
@@ -2493,6 +2555,21 @@ pub async fn update_wayfern_config(
   profile_id: String,
   config: WayfernConfig,
 ) -> Result<(), String> {
+  if config.fingerprint.is_some()
+    && !crate::cloud_auth::CLOUD_AUTH
+      .can_use_cross_os_fingerprints()
+      .await
+  {
+    return Err(serde_json::json!({ "code": "FINGERPRINT_REQUIRES_PRO" }).to_string());
+  }
+
+  if !crate::cloud_auth::CLOUD_AUTH
+    .is_fingerprint_os_allowed(config.os.as_deref())
+    .await
+  {
+    return Err("Fingerprint OS spoofing requires an active Pro subscription".to_string());
+  }
+
   let profile_manager = ProfileManager::instance();
   profile_manager
     .update_wayfern_config(app_handle, &profile_id, config)

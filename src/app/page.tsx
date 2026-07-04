@@ -8,13 +8,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AccountPage } from "@/components/account-page";
 import { CamoufoxConfigDialog } from "@/components/camoufox-config-dialog";
+import { CamoufoxDeprecationDialog } from "@/components/camoufox-deprecation-dialog";
 import { CloneProfileDialog } from "@/components/clone-profile-dialog";
 import { CloseConfirmDialog } from "@/components/close-confirm-dialog";
 import { CommandPalette } from "@/components/command-palette";
+import { CommercialTrialModal } from "@/components/commercial-trial-modal";
 import { CookieCopyDialog } from "@/components/cookie-copy-dialog";
 import { CookieManagementDialog } from "@/components/cookie-management-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
+import { DeviceCodeVerifyDialog } from "@/components/device-code-verify-dialog";
 import { ExtensionGroupAssignmentDialog } from "@/components/extension-group-assignment-dialog";
 import { ExtensionManagementDialog } from "@/components/extension-management-dialog";
 import { GroupAssignmentDialog } from "@/components/group-assignment-dialog";
@@ -43,6 +46,9 @@ import { ThankYouDialog } from "@/components/thank-you-dialog";
 import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
 import { WindowResizeWarningDialog } from "@/components/window-resize-warning-dialog";
+import { useAppUpdateNotifications } from "@/hooks/use-app-update-notifications";
+import { useCloudAuth } from "@/hooks/use-cloud-auth";
+import { useCommercialTrial } from "@/hooks/use-commercial-trial";
 import { useGroupEvents } from "@/hooks/use-group-events";
 import type { PermissionType } from "@/hooks/use-permissions";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -54,6 +60,7 @@ import { useVersionUpdater } from "@/hooks/use-version-updater";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
 import { useWayfernTerms } from "@/hooks/use-wayfern-terms";
 import { translateBackendError } from "@/lib/backend-errors";
+import { getEntitlements } from "@/lib/entitlements";
 import {
   ONBOARDING_TOUR_FINISHED_EVENT,
   setOnboardingActive,
@@ -206,12 +213,25 @@ export default function Home() {
   const [syncLeaderProfile, setSyncLeaderProfile] =
     useState<BrowserProfile | null>(null);
 
-  // Wayfern terms hook
+  // Wayfern terms and commercial trial hooks
   const {
     termsAccepted,
     isLoading: termsLoading,
     checkTerms,
   } = useWayfernTerms();
+  const {
+    trialStatus,
+    hasAcknowledged: trialAcknowledged,
+    checkTrialStatus,
+  } = useCommercialTrial();
+
+  // Cloud auth for cross-OS unlock
+  const { user: cloudUser } = useCloudAuth();
+  const crossOsUnlocked = getEntitlements(cloudUser).crossOsFingerprints;
+  // Bulk run/stop is a paid (browser automation) feature, matching the
+  // /v1/profiles/batch/run API gate. Free/starter users see the bulk Run/Stop
+  // actions disabled with a Pro badge.
+  const automationUnlocked = getEntitlements(cloudUser).browserAutomation;
 
   const [selfHostedSyncConfigured, setSelfHostedSyncConfigured] =
     useState(false);
@@ -222,13 +242,13 @@ export default function Home() {
       const hasConfig = Boolean(
         settings.sync_server_url && settings.sync_token,
       );
-      setSelfHostedSyncConfigured(hasConfig);
+      setSelfHostedSyncConfigured(hasConfig && !cloudUser);
     } catch {
       setSelfHostedSyncConfigured(false);
     }
-  }, []);
+  }, [cloudUser]);
 
-  const syncUnlocked = selfHostedSyncConfigured;
+  const syncUnlocked = crossOsUnlocked || selfHostedSyncConfigured;
 
   const [currentPage, setCurrentPage] = useState<AppPage>("profiles");
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
@@ -307,6 +327,7 @@ export default function Home() {
     useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [syncConfigDialogOpen, setSyncConfigDialogOpen] = useState(false);
+  const [deviceCodeDialogOpen, setDeviceCodeDialogOpen] = useState(false);
   const [syncAllDialogOpen, setSyncAllDialogOpen] = useState(false);
   const [profileSyncDialogOpen, setProfileSyncDialogOpen] = useState(false);
   const [currentProfileForSync, setCurrentProfileForSync] =
@@ -598,9 +619,11 @@ export default function Home() {
     [processingUrls],
   );
 
-  // Browser update functionality only (app auto-update removed)
+  // Auto-update functionality - use the existing hook for compatibility
   const updateNotifications = useUpdateNotifications();
-  const { isUpdating } = updateNotifications;
+  const { checkForUpdates, isUpdating } = updateNotifications;
+
+  useAppUpdateNotifications();
 
   // Check for startup URLs but only process them once
   const [hasCheckedStartupUrl, setHasCheckedStartupUrl] = useState(false);
@@ -689,49 +712,67 @@ export default function Home() {
   );
 
   const listenForUrlEvents = useCallback(async () => {
+    // Collect every listener we register so that — whether setup completes or
+    // throws partway through — we tear down exactly what was registered.
+    // Previously the Tauri unlisten handles were discarded (so re-runs stacked
+    // duplicate handlers and a single URL was handled N times), and a failing
+    // listen() call would leak the listeners that had already succeeded.
+    const unlisteners: Array<() => void> = [];
+    let handleLogoUrlEvent: ((event: CustomEvent) => void) | undefined;
+    const teardown = () => {
+      for (const unlisten of unlisteners) unlisten();
+      if (handleLogoUrlEvent) {
+        window.removeEventListener(
+          "url-open-request",
+          handleLogoUrlEvent as EventListener,
+        );
+      }
+    };
+
     try {
       // Listen for URL open events from the deep link handler (when app is already running)
-      await listen<string>("url-open-request", (event) => {
-        console.log("Received URL open request:", event.payload);
-        handleUrlOpen(event.payload);
-      });
+      unlisteners.push(
+        await listen<string>("url-open-request", (event) => {
+          console.log("Received URL open request:", event.payload);
+          handleUrlOpen(event.payload);
+        }),
+      );
 
       // Listen for show profile selector events
-      await listen<string>("show-profile-selector", (event) => {
-        console.log("Received show profile selector request:", event.payload);
-        handleUrlOpen(event.payload);
-      });
+      unlisteners.push(
+        await listen<string>("show-profile-selector", (event) => {
+          console.log("Received show profile selector request:", event.payload);
+          handleUrlOpen(event.payload);
+        }),
+      );
 
       // Listen for show create profile dialog events
-      await listen<string>("show-create-profile-dialog", (event) => {
-        console.log(
-          "Received show create profile dialog request:",
-          event.payload,
-        );
-        showErrorToast(t("errors.noProfilesForUrl"));
-        setCreateProfileDialogOpen(true);
-      });
+      unlisteners.push(
+        await listen<string>("show-create-profile-dialog", (event) => {
+          console.log(
+            "Received show create profile dialog request:",
+            event.payload,
+          );
+          showErrorToast(t("errors.noProfilesForUrl"));
+          setCreateProfileDialogOpen(true);
+        }),
+      );
 
       // Listen for custom logo click events
-      const handleLogoUrlEvent = (event: CustomEvent) => {
+      handleLogoUrlEvent = (event: CustomEvent) => {
         console.log("Received logo URL event:", event.detail);
         handleUrlOpen(event.detail);
       };
-
       window.addEventListener(
         "url-open-request",
         handleLogoUrlEvent as EventListener,
       );
 
-      // Return cleanup function
-      return () => {
-        window.removeEventListener(
-          "url-open-request",
-          handleLogoUrlEvent as EventListener,
-        );
-      };
+      return teardown;
     } catch (error) {
       console.error("Failed to setup URL listener:", error);
+      // Tear down whatever did register before the failure so nothing leaks.
+      teardown();
     }
   }, [handleUrlOpen, t]);
 
@@ -1109,6 +1150,75 @@ export default function Home() {
     setCookieCopyDialogOpen(true);
   }, [selectedProfiles, profiles, t]);
 
+  const [pendingBulkAction, setPendingBulkAction] = useState<{
+    action: "run" | "stop";
+    profiles: BrowserProfile[];
+  } | null>(null);
+  const [isBulkActing, setIsBulkActing] = useState(false);
+
+  const executeBulkRun = useCallback(
+    async (targets: BrowserProfile[]) => {
+      setIsBulkActing(true);
+      try {
+        await Promise.allSettled(targets.map((p) => launchProfile(p)));
+        setSelectedProfiles([]);
+      } finally {
+        setIsBulkActing(false);
+        setPendingBulkAction(null);
+      }
+    },
+    [launchProfile],
+  );
+
+  const executeBulkStop = useCallback(
+    async (targets: BrowserProfile[]) => {
+      setIsBulkActing(true);
+      try {
+        await Promise.allSettled(targets.map((p) => handleKillProfile(p)));
+        setSelectedProfiles([]);
+      } finally {
+        setIsBulkActing(false);
+        setPendingBulkAction(null);
+      }
+    },
+    [handleKillProfile],
+  );
+
+  // Bulk run/stop only touch eligible profiles (run: not already running;
+  // stop: currently running). An empty result shows a toast instead of a silent
+  // no-op (guard), and 10+ targets require confirmation before launching/stopping.
+  const handleBulkRun = useCallback(() => {
+    if (selectedProfiles.length === 0) return;
+    const targets = profiles.filter(
+      (p) => selectedProfiles.includes(p.id) && !runningProfiles.has(p.id),
+    );
+    if (targets.length === 0) {
+      showErrorToast(t("profiles.bulkRun.noneToRun"));
+      return;
+    }
+    if (targets.length >= 10) {
+      setPendingBulkAction({ action: "run", profiles: targets });
+      return;
+    }
+    void executeBulkRun(targets);
+  }, [selectedProfiles, profiles, runningProfiles, executeBulkRun, t]);
+
+  const handleBulkStop = useCallback(() => {
+    if (selectedProfiles.length === 0) return;
+    const targets = profiles.filter(
+      (p) => selectedProfiles.includes(p.id) && runningProfiles.has(p.id),
+    );
+    if (targets.length === 0) {
+      showErrorToast(t("profiles.bulkStop.noneToStop"));
+      return;
+    }
+    if (targets.length >= 10) {
+      setPendingBulkAction({ action: "stop", profiles: targets });
+      return;
+    }
+    void executeBulkStop(targets);
+  }, [selectedProfiles, profiles, runningProfiles, executeBulkStop, t]);
+
   const handleCopyCookiesToProfile = useCallback((profile: BrowserProfile) => {
     setSelectedProfilesForCookies([profile.id]);
     setCookieCopyDialogOpen(true);
@@ -1148,11 +1258,14 @@ export default function Home() {
           profileId: profile.id,
           syncMode: enabling ? "Regular" : "Disabled",
         });
-        showSuccessToast(enabling ? "Sync enabled" : "Sync disabled", {
-          description: enabling
-            ? "Profile sync has been enabled"
-            : "Profile sync has been disabled",
-        });
+        showSuccessToast(
+          t(enabling ? "sync.enabledToast" : "sync.disabledToast"),
+          {
+            description: t(
+              enabling ? "sync.enabledDescription" : "sync.disabledDescription",
+            ),
+          },
+        );
       } catch (error) {
         console.error("Failed to toggle sync:", error);
         showErrorToast(t("errors.updateSyncSettingsFailed"));
@@ -1162,6 +1275,7 @@ export default function Home() {
   );
 
   useEffect(() => {
+    let disposed = false;
     let unlistenStatus: (() => void) | undefined;
     let unlistenProgress: (() => void) | undefined;
     const profilesWithTransfer = new Set<string>();
@@ -1238,30 +1352,48 @@ export default function Home() {
             );
           }
         });
+        // If the effect was torn down while we were awaiting the listeners,
+        // unlisten immediately — the cleanup below already ran and would have
+        // missed these handles. (Tauri unlisten is safe to call more than once.)
+        if (disposed) {
+          unlistenStatus?.();
+          unlistenProgress?.();
+        }
       } catch (error) {
         console.error("Failed to listen for sync events:", error);
       }
     })();
     return () => {
+      disposed = true;
       if (unlistenStatus) unlistenStatus();
       if (unlistenProgress) unlistenProgress();
     };
   }, [profiles, t]);
 
   useEffect(() => {
-    // Listen for URL open events and get cleanup function
-    const setupListeners = async () => {
-      const cleanup = await listenForUrlEvents();
-      return cleanup;
-    };
-
+    // Listen for URL open events. Guard against the effect tearing down (or
+    // re-running) before the async listener setup resolves: if that happens,
+    // run the cleanup as soon as it's available so the listeners never leak.
     let cleanup: (() => void) | undefined;
-    void setupListeners().then((cleanupFn) => {
+    let disposed = false;
+    void listenForUrlEvents().then((cleanupFn) => {
+      if (disposed) {
+        cleanupFn?.();
+        return;
+      }
       cleanup = cleanupFn;
     });
 
     // Check for startup URLs (when app was launched as default browser)
     void checkCurrentUrl();
+
+    // Set up periodic update checks (every 30 minutes)
+    const updateInterval = setInterval(
+      () => {
+        void checkForUpdates();
+      },
+      30 * 60 * 1000,
+    );
 
     // Check for missing binaries after initial profile load
     if (!profilesLoading && profiles.length > 0) {
@@ -1276,11 +1408,12 @@ export default function Home() {
     }
 
     return () => {
-      if (cleanup) {
-        cleanup();
-      }
+      disposed = true;
+      clearInterval(updateInterval);
+      cleanup?.();
     };
   }, [
+    checkForUpdates,
     listenForUrlEvents,
     checkCurrentUrl,
     checkMissingBinaries,
@@ -1291,10 +1424,12 @@ export default function Home() {
   // E2E encryption listeners — surface password-required prompts and rollover
   // progress so the user isn't left guessing whether sealing finished.
   useEffect(() => {
+    let disposed = false;
     let unlistenRequired: (() => void) | undefined;
     let unlistenStarted: (() => void) | undefined;
     let unlistenProgress: (() => void) | undefined;
     let unlistenCompleted: (() => void) | undefined;
+    let unlistenWayfernBlocked: (() => void) | undefined;
 
     void (async () => {
       unlistenRequired = await listen(
@@ -1356,13 +1491,35 @@ export default function Home() {
           duration: 5000,
         });
       });
+
+      unlistenWayfernBlocked = await listen("wayfern-paid-blocked", () => {
+        showToast({
+          id: "wayfern-paid-blocked",
+          type: "error",
+          title: t("wayfernBlocked.title"),
+          description: t("wayfernBlocked.description"),
+          duration: 15000,
+        });
+      });
+
+      // If the effect was torn down mid-setup, the cleanup below already ran
+      // before these handles existed — unlisten them now so nothing leaks.
+      if (disposed) {
+        unlistenRequired?.();
+        unlistenStarted?.();
+        unlistenProgress?.();
+        unlistenCompleted?.();
+        unlistenWayfernBlocked?.();
+      }
     })();
 
     return () => {
+      disposed = true;
       unlistenRequired?.();
       unlistenStarted?.();
       unlistenProgress?.();
       unlistenCompleted?.();
+      unlistenWayfernBlocked?.();
     };
   }, [t]);
 
@@ -1480,8 +1637,9 @@ export default function Home() {
         : t(`pageTitle.${currentPage}`);
 
   return (
-    <div className="flex flex-col h-screen bg-background font-(family-name:--font-geist-sans)">
+    <div className="flex h-dvh flex-col bg-background font-(family-name:--font-geist-sans)">
       <CloseConfirmDialog />
+      <CamoufoxDeprecationDialog profiles={profiles} />
       <HomeHeader
         onCreateProfileDialogOpen={setCreateProfileDialogOpen}
         searchQuery={searchQuery}
@@ -1492,11 +1650,11 @@ export default function Home() {
         onGroupSelect={handleSelectGroup}
         pageTitle={subPageTitle}
       />
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 flex-1">
         <RailNav currentPage={currentPage} onNavigate={handleRailNavigate} />
-        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {currentPage === "profiles" && (
-            <div className="px-3 pt-2.5 flex flex-col flex-1 min-h-0">
+            <div className="flex min-h-0 flex-1 flex-col px-3 pt-2.5">
               {isLoading && groupsData.length === 0 ? null : null}
               <ProfilesDataTable
                 profiles={filteredProfiles}
@@ -1524,13 +1682,16 @@ export default function Home() {
                 onBulkGroupAssignment={handleBulkGroupAssignment}
                 onBulkProxyAssignment={handleBulkProxyAssignment}
                 onBulkCopyCookies={handleBulkCopyCookies}
+                onBulkRun={handleBulkRun}
+                onBulkStop={handleBulkStop}
+                bulkActionsUnlocked={automationUnlocked}
                 onBulkExtensionGroupAssignment={
                   handleBulkExtensionGroupAssignment
                 }
                 onAssignExtensionGroup={handleAssignExtensionGroup}
                 onOpenProfileSyncDialog={handleOpenProfileSyncDialog}
                 onToggleProfileSync={handleToggleProfileSync}
-                crossOsUnlocked={false}
+                crossOsUnlocked={crossOsUnlocked}
                 syncUnlocked={syncUnlocked}
                 getProfileSyncInfo={getProfileSyncInfo}
                 onLaunchWithSync={(profile) => {
@@ -1616,7 +1777,7 @@ export default function Home() {
                 setImportProfileDialogOpen(false);
                 setCurrentPage("profiles");
               }}
-              crossOsUnlocked={false}
+              crossOsUnlocked={crossOsUnlocked}
               subPage={currentPage === "import"}
             />
           )}
@@ -1629,6 +1790,11 @@ export default function Home() {
                 setCurrentPage("profiles");
               }}
               subPage={currentPage === "account"}
+              onOpenSignIn={() => {
+                setAccountDialogOpen(false);
+                setCurrentPage("profiles");
+                setDeviceCodeDialogOpen(true);
+              }}
             />
           )}
         </main>
@@ -1641,7 +1807,7 @@ export default function Home() {
         }}
         onCreateProfile={handleCreateProfile}
         selectedGroupId={selectedGroupId}
-        crossOsUnlocked={false}
+        crossOsUnlocked={crossOsUnlocked}
       />
 
       <CommandPalette
@@ -1760,7 +1926,7 @@ export default function Home() {
             ? runningProfiles.has(currentProfileForCamoufoxConfig.id)
             : false
         }
-        crossOsUnlocked={false}
+        crossOsUnlocked={crossOsUnlocked}
       />
 
       <GroupAssignmentDialog
@@ -1819,6 +1985,49 @@ export default function Home() {
       />
 
       <DeleteConfirmationDialog
+        isOpen={pendingBulkAction !== null}
+        onClose={() => {
+          setPendingBulkAction(null);
+        }}
+        onConfirm={() => {
+          if (!pendingBulkAction) return;
+          if (pendingBulkAction.action === "run") {
+            void executeBulkRun(pendingBulkAction.profiles);
+          } else {
+            void executeBulkStop(pendingBulkAction.profiles);
+          }
+        }}
+        title={
+          pendingBulkAction?.action === "stop"
+            ? t("profiles.bulkStop.confirmTitle", {
+                count: pendingBulkAction?.profiles.length ?? 0,
+              })
+            : t("profiles.bulkRun.confirmTitle", {
+                count: pendingBulkAction?.profiles.length ?? 0,
+              })
+        }
+        description={
+          pendingBulkAction?.action === "stop"
+            ? t("profiles.bulkStop.confirmDescription", {
+                count: pendingBulkAction?.profiles.length ?? 0,
+              })
+            : t("profiles.bulkRun.confirmDescription", {
+                count: pendingBulkAction?.profiles.length ?? 0,
+              })
+        }
+        confirmButtonText={
+          pendingBulkAction?.action === "stop"
+            ? t("profiles.bulkStop.confirmButton", {
+                count: pendingBulkAction?.profiles.length ?? 0,
+              })
+            : t("profiles.bulkRun.confirmButton", {
+                count: pendingBulkAction?.profiles.length ?? 0,
+              })
+        }
+        confirmButtonVariant="default"
+        isLoading={isBulkActing}
+      />
+      <DeleteConfirmationDialog
         isOpen={showBulkDeleteConfirmation}
         onClose={() => {
           setShowBulkDeleteConfirmation(false);
@@ -1845,7 +2054,28 @@ export default function Home() {
             setSyncAllDialogOpen(true);
           }
         }}
+        onLoginStarted={() => {
+          // Hand the verify step off to its own dialog. We close this one
+          // first so the verify dialog isn't stacked on top of it (and
+          // can't end up stacked on top of the profile selector either).
+          setSyncConfigDialogOpen(false);
+          setDeviceCodeDialogOpen(true);
+        }}
       />
+
+      {/* Only render while no profile-selector flow is in progress, so the
+          verify dialog never lands on top of a deep-link-triggered selector. */}
+      {pendingUrls.length === 0 && (
+        <DeviceCodeVerifyDialog
+          isOpen={deviceCodeDialogOpen}
+          onClose={(loginOccurred) => {
+            setDeviceCodeDialogOpen(false);
+            if (loginOccurred) {
+              setSyncAllDialogOpen(true);
+            }
+          }}
+        />
+      )}
 
       <SyncAllDialog
         isOpen={syncAllDialogOpen}
@@ -1870,6 +2100,18 @@ export default function Home() {
       <WayfernTermsDialog
         isOpen={!termsLoading && termsAccepted === false}
         onAccepted={checkTerms}
+      />
+
+      {/* Commercial Trial Modal - shown once when trial expires (skip for paid users) */}
+      <CommercialTrialModal
+        isOpen={
+          !termsLoading &&
+          termsAccepted === true &&
+          trialStatus?.type === "Expired" &&
+          !trialAcknowledged &&
+          !crossOsUnlocked
+        }
+        onClose={checkTrialStatus}
       />
 
       <WindowResizeWarningDialog

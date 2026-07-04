@@ -90,7 +90,9 @@
       "unknown": "Unknown error occurred"
     },
     "window": {
-      "minimize": "Minimize"
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore"
     },
     "commandPalette": {
       "title": "Command Palette",
@@ -173,6 +175,15 @@
         "mismatchToast": "Password does not match"
       }
     },
+    "commercial": {
+      "title": "Commercial License",
+      "trialActive": "Trial: {{days}} days, {{hours}} hours remaining",
+      "trialActiveDescription": "Commercial use is free during the trial. When it ends, all features keep working — personal use stays free, only commercial use will require a license.",
+      "trialExpired": "Trial expired",
+      "trialExpiredDescription": "Personal use remains free. Commercial use requires a license.",
+      "subscriptionActive": "Subscribed — {{plan}} plan",
+      "subscriptionActiveDescription": "Your Donut Browser subscription is active. Commercial use is licensed for the duration of your plan."
+    },
     "advanced": {
       "title": "Advanced",
       "clearCache": "Clear All Version Cache",
@@ -183,6 +194,8 @@
       "copyLogsSuccess": "Logs copied to clipboard",
       "copyLogsDescription": "Bundles the most recent log files (up to 5 MB) into your clipboard for sharing in bug reports."
     },
+    "disableAutoUpdates": "Disable App Auto Updates",
+    "disableAutoUpdatesDescription": "Prevent the app from automatically checking and installing Donut Browser updates. Browser updates are not affected.",
     "keepDecryptedProfilesInRam": "Keep Decrypted Profiles In RAM",
     "keepDecryptedProfilesInRamDescription": "Preserve the decrypted in-RAM copy of password-protected profiles between launches for faster startup. The on-disk copy stays encrypted regardless."
   },
@@ -228,7 +241,11 @@
       "extDefault": "Default",
       "dnsLevel": "DNS blocklist: {{level}}",
       "extSearch": "Search groups…",
-      "extEmpty": "No extension groups"
+      "extEmpty": "No extension groups",
+      "cantModifyRunning": "Can't modify running profile",
+      "cantModifyLaunching": "Can't modify profile while launching",
+      "cantModifyStopping": "Can't modify profile while stopping",
+      "cantModifyUpdating": "Can't modify profile while browser is updating"
     },
     "actions": {
       "launch": "Launch",
@@ -288,11 +305,32 @@
       "assignToGroup": "Assign to Group",
       "assignProxy": "Assign Proxy",
       "assignExtensionGroup": "Assign Extension Group",
-      "copyCookies": "Copy Cookies"
+      "copyCookies": "Copy Cookies",
+      "runSelected": "Run selected",
+      "stopSelected": "Stop selected",
+      "proRequired": "Pro plan required for bulk run/stop"
     },
     "passwordProtectedBadge": "Password Protected",
     "launchHook": {
       "placeholder": "https://example.com/track-launch"
+    },
+    "bulkRun": {
+      "confirmTitle": "Run {{count}} profiles?",
+      "confirmDescription": "Launching {{count}} profiles at once can use a lot of system resources. Continue?",
+      "confirmButton": "Run {{count}}",
+      "noneToRun": "No selected profiles to run."
+    },
+    "bulkStop": {
+      "confirmTitle": "Stop {{count}} profiles?",
+      "confirmDescription": "Stop {{count}} running profiles?",
+      "confirmButton": "Stop {{count}}",
+      "noneToStop": "No selected profiles to stop."
+    },
+    "sort": {
+      "nameAsc": "Name (A–Z)",
+      "nameDesc": "Name (Z–A)",
+      "newest": "Newest first",
+      "oldest": "Oldest first"
     }
   },
   "createProfile": {
@@ -384,6 +422,7 @@
       "newProxy": "New proxy",
       "newVpn": "New VPN",
       "protocolCol": "Protocol",
+      "hostPort": "Host : port",
       "title": "Proxies & VPNs"
     },
     "add": "Add Proxy",
@@ -628,7 +667,11 @@
       "profileSynced": "Profile '{{name}}' synced successfully",
       "profileSyncFailed": "Failed to sync profile '{{name}}'",
       "profileSyncFailedWithError": "Failed to sync profile '{{name}}': {{error}}"
-    }
+    },
+    "enabledToast": "Sync enabled",
+    "disabledToast": "Sync disabled",
+    "enabledDescription": "Profile sync has been enabled",
+    "disabledDescription": "Profile sync has been disabled"
   },
   "integrations": {
     "title": "Integrations",
@@ -907,6 +950,11 @@
       "syncingProfile": "Syncing profile '{{name}}'...",
       "syncingProfileWithProgress": "{{count}} files ({{size}})",
       "updatingVersions": "Updating browser versions..."
+    },
+    "progress": {
+      "remaining": "{{time}} remaining",
+      "filesProgress": "{{completed}}/{{total}} files",
+      "filesFailed": "{{count}} file(s) failed"
     }
   },
   "errors": {
@@ -1107,7 +1155,8 @@
       "proxy": "PROXY",
       "vpn": "VPN",
       "cookieCount": "Cookies stored",
-      "localDataTransfer": "Local data transfer"
+      "localDataTransfer": "Local data transfer",
+      "created": "Created"
     },
     "values": {
       "none": "None",
@@ -1116,7 +1165,8 @@
       "yes": "Yes",
       "activeNow": "Active now",
       "direct": "Direct",
-      "loading": "Loading…"
+      "loading": "Loading…",
+      "unknown": "Unknown"
     },
     "network": {
       "bypassRules": "Proxy Bypass Rules",
@@ -1125,7 +1175,9 @@
       "addRule": "Add Rule",
       "rulePlaceholder": "e.g. example.com, 192.168.1.*, .*\\.local",
       "noRules": "No bypass rules configured.",
-      "ruleTypes": "Supports hostnames, IP addresses, and regex patterns."
+      "ruleTypes": "Supports hostnames, IP addresses, and regex patterns.",
+      "vpnLabel": "VPN: {{name}}",
+      "proxyLabel": "Proxy: {{name}}"
     },
     "launchHook": {
       "title": "Launch Hook URL",
@@ -1187,6 +1239,12 @@
       "notSupported": "Fingerprint editing is only available for Camoufox and Wayfern profiles.",
       "lockedTitle": "Viewing & editing the fingerprint is a Pro feature",
       "lockedDescription": "Fingerprint protection is included on every plan. Viewing and editing a profile's fingerprint values is what requires an active paid plan."
+    },
+    "syncStatusValue": {
+      "waiting": "Waiting",
+      "syncing": "Syncing",
+      "synced": "Synced",
+      "error": "Error"
     }
   },
   "extensions": {
@@ -1532,6 +1590,14 @@
     "acceptFailed": "Failed to accept terms",
     "tryAgain": "Please try again"
   },
+  "commercialTrial": {
+    "title": "Commercial Trial Expired",
+    "description": "Your 2-week commercial trial period has ended.",
+    "body": "If you are using Donut Browser for business purposes, you need to purchase a commercial license to continue. You can still use it for personal use for free.",
+    "understandButton": "I Understand",
+    "failed": "Failed to save acknowledgment",
+    "tryAgain": "Please try again"
+  },
   "permissionDialog": {
     "titleMicrophone": "Microphone Access Required",
     "titleCamera": "Camera Access Required",
@@ -1699,7 +1765,8 @@
       "updateStartedDescription": "Version {{version}} download will begin shortly. Browser launch is disabled until update completes.",
       "downloadStarting": "Starting {{browser}} {{version}} download",
       "downloadProgressBelow": "Download progress will be shown below...",
-      "autoDownloadStarted": "Downloading {{browser}} {{version}} automatically. Progress will be shown below."
+      "autoDownloadStarted": "Downloading {{browser}} {{version}} automatically. Progress will be shown below.",
+      "lookingForUpdates": "Looking for updates for {{browser}}"
     }
   },
   "profilePassword": {
@@ -1777,6 +1844,7 @@
     "passwordTooShort": "Password must be at least {{min}} characters",
     "proxyNotFound": "Proxy not found",
     "groupNotFound": "Group not found",
+    "groupAlreadyExists": "A group with this name already exists",
     "vpnNotFound": "VPN not found",
     "extensionNotFound": "Extension not found",
     "extensionGroupNotFound": "Extension group not found",
@@ -1791,7 +1859,8 @@
     "fingerprintRequiresPro": "Viewing or editing the fingerprint requires an active paid plan. Protection is included on all plans.",
     "proxyNotWorking": "The selected proxy isn't working, so the profile wasn't created.",
     "proxyPaymentRequired": "The selected proxy requires payment (402) — its subscription may have expired — so the profile wasn't created.",
-    "vpnNotWorking": "The selected VPN isn't working, so the profile wasn't created."
+    "vpnNotWorking": "The selected VPN isn't working, so the profile wasn't created.",
+    "camoufoxImportDeprecated": "Importing Firefox-based (Camoufox) profiles is no longer supported. Camoufox is being deprecated — please use Wayfern instead."
   },
   "rail": {
     "profiles": "Profiles",
@@ -1849,6 +1918,7 @@
     "loggedOut": "Logged out",
     "signedOut": "Signed out",
     "signedOutDescription": "Sign in to enable cloud sync, encrypted profiles, and team features.",
+    "plan": "Plan: {{plan}} · {{period}}",
     "refresh": "Refresh",
     "logout": "Sign out",
     "signIn": "Sign in",
@@ -1919,7 +1989,7 @@
   },
   "browserSupport": {
     "endingSoonTitle": "Browser support ending soon",
-    "endingSoonDescription": "Support for the following profiles will be removed on March 15, 2026: {{profiles}}. Please migrate to Wayfern or Camoufox profiles."
+    "endingSoonDescription": "Support for the following profiles will be removed on March 15, 2026: {{profiles}}. Please migrate to Wayfern profiles."
   },
   "onboarding": {
     "steps": {
@@ -1992,7 +2062,19 @@
       "body": "Donut Browser is open source and free to use.",
       "agree": "I understand",
       "personalTitle": "Personal use",
-      "personalDesc": "Free forever."
+      "personalDesc": "Free forever.",
+      "commercialTitle": "Commercial use",
+      "trialBadge": "2 weeks free",
+      "commercialDesc": "Free for a 2-week evaluation. After that, a paid plan keeps the project maintained and thriving."
     }
+  },
+  "wayfernBlocked": {
+    "title": "Browser automation paused",
+    "description": "Your account was temporarily restricted from Pro browser features, usually from signing in on multiple devices at once. Sign out of other devices, then relaunch the profile to restore it."
+  },
+  "camoufoxDeprecation": {
+    "title": "Camoufox support is ending",
+    "description": "Support for Camoufox profiles is ending on July 8, 2026. You have one or more Camoufox profiles. Please migrate them to Wayfern before then — after that date, Camoufox profiles may stop working.",
+    "acknowledge": "Got it"
   }
 }

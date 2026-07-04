@@ -3,6 +3,42 @@ use crate::profile::BrowserProfile;
 use std::path::Path;
 use std::process::Command;
 
+/// True if a process command line refers to `profile_path` as a real browser
+/// profile/data-dir argument, NOT merely a substring. A bare `contains` match
+/// force-killed unrelated processes that happened to mention the path (editors,
+/// `tail`, a terminal that `cd`'d there, or another profile whose path has this
+/// one as a prefix). Mirrors the precise matching in browser_runner/wayfern_manager.
+///
+/// Only the macOS and Linux process-kill paths use this; Windows has no
+/// `find_processes_by_profile_path`, so gate it to avoid a dead-code error there.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn cmd_matches_profile_path(cmd: &[std::ffi::OsString], profile_path: &str) -> bool {
+  let args: Vec<&str> = cmd.iter().filter_map(|a| a.to_str()).collect();
+  for (i, arg) in args.iter().enumerate() {
+    // Exact argument equality (Firefox/Camoufox: `-profile <path>`; some launchers
+    // pass the path as its own arg).
+    if *arg == profile_path {
+      return true;
+    }
+    // `--user-data-dir=<path>` (Chromium/Wayfern) or `-profile=<path>`.
+    if let Some(val) = arg
+      .strip_prefix("--user-data-dir=")
+      .or_else(|| arg.strip_prefix("-profile="))
+    {
+      if val == profile_path {
+        return true;
+      }
+    }
+    // Flag followed by the path as the next argument.
+    if (*arg == "-profile" || *arg == "--user-data-dir")
+      && args.get(i + 1).is_some_and(|next| *next == profile_path)
+    {
+      return true;
+    }
+  }
+  false
+}
+
 // Platform-specific modules
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
@@ -215,16 +251,7 @@ pub mod macos {
         continue;
       }
 
-      // Check if any command line argument contains the profile path
-      let has_profile = cmd.iter().any(|arg| {
-        if let Some(arg_str) = arg.to_str() {
-          arg_str.contains(profile_path)
-        } else {
-          false
-        }
-      });
-
-      if has_profile {
+      if cmd_matches_profile_path(cmd, profile_path) {
         pids.push(pid.as_u32());
       }
     }
@@ -607,19 +634,25 @@ pub mod linux {
       }
     }
 
-    // Additional Linux-specific environment variables for better compatibility
-    cmd.env(
-      "DISPLAY",
-      std::env::var("DISPLAY").unwrap_or(":0".to_string()),
-    );
+    // Propagate DISPLAY only when this session actually has an X11 display.
+    // Forcing DISPLAY=:0 breaks Wayland-only sessions (there is no X server on
+    // :0, so any X11 client launched with it set will fail to connect). When
+    // DISPLAY is set the child already inherits it from our environment, so
+    // setting it explicitly here is purely defensive; when it's unset we leave
+    // it unset and let the browser use Wayland.
+    if let Ok(display) = std::env::var("DISPLAY") {
+      cmd.env("DISPLAY", display);
+    }
 
     // Set MOZ_ENABLE_WAYLAND for better Wayland support
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
       cmd.env("MOZ_ENABLE_WAYLAND", "1");
     }
 
-    // Disable GPU acceleration if running in headless environments
-    if std::env::var("DISPLAY").is_err() || std::env::var("WAYLAND_DISPLAY").is_err() {
+    // Warn only when running truly headless — i.e. NEITHER X11 nor Wayland is
+    // available. Using OR here would fire on every normal Wayland-only session
+    // (DISPLAY unset) or X11-only session (WAYLAND_DISPLAY unset).
+    if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
       log::info!("No display detected, browser may fail to start");
     }
 
@@ -832,15 +865,7 @@ pub mod linux {
         continue;
       }
 
-      let has_profile = cmd.iter().any(|arg| {
-        if let Some(arg_str) = arg.to_str() {
-          arg_str.contains(profile_path)
-        } else {
-          false
-        }
-      });
-
-      if has_profile {
+      if cmd_matches_profile_path(cmd, profile_path) {
         pids.push(pid.as_u32());
       }
     }

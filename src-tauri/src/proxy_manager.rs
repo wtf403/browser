@@ -774,6 +774,17 @@ impl ProxyManager {
     list
   }
 
+  /// Insert/replace a stored proxy in the in-memory map. Used by sync's
+  /// download_proxy after it writes the file to disk, mirroring how
+  /// download_group/download_vpn/download_extension keep their managers'
+  /// in-memory state in sync. Without this, get_stored_proxies (which reads
+  /// only the map) never sees a downloaded proxy until restart, so sync keeps
+  /// re-downloading it indefinitely.
+  pub fn upsert_stored_proxy(&self, proxy: StoredProxy) {
+    let mut stored_proxies = self.stored_proxies.lock().unwrap();
+    stored_proxies.insert(proxy.id.clone(), proxy);
+  }
+
   // Get a stored proxy by ID
 
   // Update a stored proxy
@@ -1467,6 +1478,7 @@ impl ProxyManager {
 
   // Start a proxy for given proxy settings and associate it with a browser process ID
   // If proxy_settings is None, starts a direct proxy for traffic monitoring
+  #[allow(clippy::too_many_arguments)]
   pub async fn start_proxy(
     &self,
     app_handle: tauri::AppHandle,
@@ -1475,6 +1487,10 @@ impl ProxyManager {
     profile_id: Option<&str>,
     bypass_rules: Vec<String>,
     blocklist_file: Option<String>,
+    // Protocol the local worker serves the browser: "http" (Camoufox) or
+    // "socks5" (Wayfern). Reflected in the returned ProxySettings.proxy_type
+    // so the caller formats the right local proxy URL scheme.
+    local_protocol: &str,
   ) -> Result<ProxySettings, String> {
     if let Some(name) = profile_id {
       // Check if we have an active proxy recorded for this profile
@@ -1508,7 +1524,7 @@ impl ProxyManager {
             if proxies.contains_key(&browser_pid) {
               // Already mapped, reuse it
               return Ok(ProxySettings {
-                proxy_type: "http".to_string(),
+                proxy_type: local_protocol.to_string(),
                 host: "127.0.0.1".to_string(),
                 port: existing.local_port,
                 username: None,
@@ -1548,7 +1564,7 @@ impl ProxyManager {
           if profile_id_matches {
             // Reuse existing local proxy (settings and profile_id match)
             return Ok(ProxySettings {
-              proxy_type: "http".to_string(),
+              proxy_type: local_protocol.to_string(),
               host: "127.0.0.1".to_string(),
               port: existing.local_port,
               username: None,
@@ -1606,6 +1622,9 @@ impl ProxyManager {
     if let Some(ref path) = blocklist_file {
       proxy_cmd = proxy_cmd.arg("--blocklist-file").arg(path);
     }
+
+    // Tell the worker which protocol to serve the browser (http or socks5)
+    proxy_cmd = proxy_cmd.arg("--local-protocol").arg(local_protocol);
 
     // Execute the command and wait for it to complete
     // The donut-proxy binary should start the worker and then exit
@@ -1698,7 +1717,7 @@ impl ProxyManager {
 
     // Return proxy settings for the browser
     Ok(ProxySettings {
-      proxy_type: "http".to_string(),
+      proxy_type: local_protocol.to_string(),
       host: "127.0.0.1".to_string(), // Use 127.0.0.1 instead of localhost for better compatibility
       port: proxy_info.local_port,
       username: None,
@@ -1730,12 +1749,18 @@ impl ProxyManager {
       .arg("--id")
       .arg(&proxy_id);
 
-    let output = proxy_cmd.output().await.unwrap();
-
-    if !output.status.success() {
-      let stderr = String::from_utf8_lossy(&output.stderr);
-      log::warn!("Proxy stop error: {stderr}");
-      // We still return Ok since we've already removed the proxy from our tracking
+    // A failed spawn (sidecar missing, permission denied, fd exhaustion) must
+    // not panic the cleanup task — the proxy is already removed from tracking,
+    // so degrade gracefully like the non-success branch below.
+    match proxy_cmd.output().await {
+      Ok(output) if !output.status.success() => {
+        log::warn!(
+          "Proxy stop error: {}",
+          String::from_utf8_lossy(&output.stderr)
+        );
+      }
+      Ok(_) => {}
+      Err(e) => log::warn!("Failed to run donut-proxy stop: {e}"),
     }
 
     // Clear profile-to-proxy mapping if it references this proxy
@@ -1795,11 +1820,16 @@ impl ProxyManager {
           .arg("--id")
           .arg(&proxy_id);
 
-        let output = proxy_cmd.output().await.unwrap();
-
-        if !output.status.success() {
-          let stderr = String::from_utf8_lossy(&output.stderr);
-          log::warn!("Proxy stop error: {stderr}");
+        // Don't panic if the sidecar can't be spawned — still clear the mapping.
+        match proxy_cmd.output().await {
+          Ok(output) if !output.status.success() => {
+            log::warn!(
+              "Proxy stop error: {}",
+              String::from_utf8_lossy(&output.stderr)
+            );
+          }
+          Ok(_) => {}
+          Err(e) => log::warn!("Failed to run donut-proxy stop: {e}"),
         }
 
         // Clear profile-to-proxy mapping
@@ -1827,6 +1857,38 @@ impl ProxyManager {
       Ok(())
     } else {
       Err(format!("No proxy found for PID {old_pid}"))
+    }
+  }
+
+  /// Persist the real browser PID onto the worker's on-disk config so the
+  /// detached worker can self-terminate when that browser dies, independent of
+  /// the GUI being alive. Resolved via the profile→proxy_id map rather than the
+  /// PID-keyed `active_proxies` map: the latter uses a placeholder key 0 during
+  /// launch that collides across concurrent launches, which could tag a live
+  /// worker with the wrong (dead) PID and make it self-exit. Safe on the reuse
+  /// path — it simply rewrites `browser_pid` to the new live PID. A `browser_pid`
+  /// of 0 (launch failed to report a PID) is ignored so the worker never
+  /// self-exits against a bogus PID.
+  pub fn set_browser_pid_for_profile(&self, profile_id: &str, browser_pid: u32) {
+    if browser_pid == 0 {
+      return;
+    }
+    let proxy_id = {
+      let map = self.profile_active_proxy_ids.lock().unwrap();
+      match map.get(profile_id) {
+        Some(id) => id.clone(),
+        None => return, // No local worker for this profile — nothing to tag.
+      }
+    };
+    if let Some(mut cfg) = crate::proxy_storage::get_proxy_config(&proxy_id) {
+      cfg.browser_pid = Some(browser_pid);
+      if crate::proxy_storage::update_proxy_config(&cfg) {
+        log::info!(
+          "Recorded browser PID {browser_pid} on proxy config {proxy_id} for self-reaping"
+        );
+      } else {
+        log::warn!("Failed to persist browser_pid {browser_pid} to proxy config {proxy_id}");
+      }
     }
   }
 
@@ -2863,6 +2925,8 @@ mod tests {
       profile_id: None,
       bypass_rules: Vec::new(),
       blocklist_file: None,
+      local_protocol: None,
+      browser_pid: None,
     };
     let dead_config = ProxyConfig {
       id: dead_id.clone(),
@@ -2874,6 +2938,8 @@ mod tests {
       profile_id: None,
       bypass_rules: Vec::new(),
       blocklist_file: None,
+      local_protocol: None,
+      browser_pid: None,
     };
 
     save_proxy_config(&live_config).unwrap();
@@ -2913,6 +2979,8 @@ mod tests {
       profile_id: Some("prof_abc".to_string()),
       bypass_rules: vec!["*.local".to_string(), "192.168.*".to_string()],
       blocklist_file: None,
+      local_protocol: None,
+      browser_pid: None,
     };
 
     // Save
@@ -3231,6 +3299,8 @@ mod tests {
       profile_id: None,
       bypass_rules: Vec::new(),
       blocklist_file: None,
+      local_protocol: None,
+      browser_pid: None,
     };
     save_proxy_config(&config).unwrap();
 

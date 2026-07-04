@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 import { parseBackendError, translateBackendError } from "@/lib/backend-errors";
 import { showErrorToast, showSuccessToast } from "@/lib/toast-utils";
+import { cn } from "@/lib/utils";
 import type { GroupWithCount, ProfileGroup } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
@@ -326,7 +327,7 @@ export function GroupManagementDialog({
             onClick={() => {
               column.toggleSorting(column.getIsSorted() === "asc");
             }}
-            className="justify-start p-0 h-auto font-semibold text-left cursor-pointer"
+            className="h-auto cursor-pointer justify-start p-0 text-left font-semibold"
           >
             {t("common.labels.name")}
             {column.getIsSorted() === "asc" ? (
@@ -345,7 +346,7 @@ export function GroupManagementDialog({
             groupSyncErrors[group.id],
           );
           return (
-            <div className="flex items-center gap-2 font-medium">
+            <div className="flex min-w-0 items-center gap-2 font-medium">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div
@@ -358,8 +359,8 @@ export function GroupManagementDialog({
                   <p>{syncDot.tooltip}</p>
                 </TooltipContent>
               </Tooltip>
-              <LuFolder className="size-4 text-muted-foreground" />
-              {group.name}
+              <LuFolder className="size-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{group.name}</span>
             </div>
           );
         },
@@ -494,9 +495,15 @@ export function GroupManagementDialog({
       const results = await Promise.allSettled(
         ids.map((groupId) => invoke("delete_profile_group", { groupId })),
       );
-      const failed = results.filter((r) => r.status === "rejected");
-      if (failed.length > 0) {
-        showErrorToast(t("groups.deleteFailed"));
+      const firstRejection = results.find((r) => r.status === "rejected") as
+        | PromiseRejectedResult
+        | undefined;
+      if (firstRejection) {
+        showErrorToast(
+          parseBackendError(firstRejection.reason)
+            ? translateBackendError(t, firstRejection.reason)
+            : t("groups.deleteFailed"),
+        );
       } else {
         showSuccessToast(t("groups.deleteSuccess"));
       }
@@ -506,9 +513,7 @@ export function GroupManagementDialog({
       onGroupManagementComplete();
     } catch (err) {
       console.error("Bulk group delete failed:", err);
-      showErrorToast(
-        err instanceof Error ? err.message : t("groups.deleteFailed"),
-      );
+      showErrorToast(translateBackendError(t, err));
     } finally {
       setIsBulkDeleting(false);
     }
@@ -552,7 +557,7 @@ export function GroupManagementDialog({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose} subPage={subPage}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="flex max-h-[90vh] max-w-[min(60rem,calc(100%-4rem))] flex-col">
           {!subPage && (
             <DialogHeader>
               <DialogTitle>{t("groups.management")}</DialogTitle>
@@ -562,7 +567,7 @@ export function GroupManagementDialog({
             </DialogHeader>
           )}
 
-          <div className="flex flex-col gap-4 flex-1 min-h-0">
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
                 <h2 className="text-base font-semibold">
@@ -577,7 +582,7 @@ export function GroupManagementDialog({
                 onClick={() => {
                   setCreateDialogOpen(true);
                 }}
-                className="flex gap-2 items-center shrink-0"
+                className="flex shrink-0 items-center gap-2"
               >
                 <GoPlus className="size-4" />
                 {t("proxies.management.create")}
@@ -585,7 +590,7 @@ export function GroupManagementDialog({
             </div>
 
             {error && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
               </div>
             )}
@@ -601,14 +606,20 @@ export function GroupManagementDialog({
               </div>
             ) : (
               <FadingScrollArea
-                className="flex-1 min-h-0"
+                className={cn(
+                  "min-h-0 flex-1",
+                  selectedGroupsForBulk.length > 0 && "pb-16",
+                )}
                 style={
                   {
                     "--scroll-fade-top-offset": "32px",
                   } as React.CSSProperties
                 }
               >
-                <Table>
+                <Table
+                  className="w-full table-fixed"
+                  containerClassName="overflow-visible"
+                >
                   <TableHeader className="sticky top-0 z-10 bg-background">
                     {table.getHeaderGroups().map((headerGroup) => (
                       <TableRow key={headerGroup.id}>
@@ -616,10 +627,14 @@ export function GroupManagementDialog({
                           <TableHead
                             key={header.id}
                             style={{
-                              width: header.column.columnDef.size
-                                ? `${header.column.getSize()}px`
-                                : undefined,
+                              width:
+                                header.column.id === "name"
+                                  ? undefined
+                                  : `${header.column.getSize()}px`,
                             }}
+                            className={cn(
+                              header.column.id === "name" && "max-w-0",
+                            )}
                           >
                             {header.isPlaceholder
                               ? null
@@ -642,10 +657,14 @@ export function GroupManagementDialog({
                           <TableCell
                             key={cell.id}
                             style={{
-                              width: cell.column.columnDef.size
-                                ? `${cell.column.getSize()}px`
-                                : undefined,
+                              width:
+                                cell.column.id === "name"
+                                  ? undefined
+                                  : `${cell.column.getSize()}px`,
                             }}
+                            className={cn(
+                              cell.column.id === "name" && "max-w-0",
+                            )}
                           >
                             {flexRender(
                               cell.column.columnDef.cell,

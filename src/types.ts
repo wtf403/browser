@@ -36,6 +36,9 @@ export interface BrowserProfile {
   proxy_bypass_rules?: string[];
   created_by_id?: string;
   created_by_email?: string;
+  /** Profile creation timestamp (epoch seconds, UTC). Undefined for legacy
+   * profiles created before this field existed. */
+  created_at?: number;
   dns_blocklist?: string;
   password_protected?: boolean;
 }
@@ -73,6 +76,62 @@ export type SyncStatus = "Disabled" | "Syncing" | "Synced" | "Error";
 export interface SyncSettings {
   sync_server_url?: string;
   sync_token?: string;
+}
+
+/**
+ * Capability/limit set derived from the plan by the backend. Features are gated
+ * on these flags instead of a single "is paid?" check, so a plan like the future
+ * "starter" tier (cross-OS fingerprints + cloud backup, no automation) is just
+ * data. Mirrors `apps/backend/src/plans/entitlements.ts`. Resolve via
+ * `getEntitlements()` — the desktop populates it, but it stays optional for
+ * safety on older state.
+ */
+export interface Entitlements {
+  active: boolean;
+  browserAutomation: boolean;
+  crossOsFingerprints: boolean;
+  cloudBackup: boolean;
+  teamCollaboration: boolean;
+  profileLimit: number;
+  requestsPerHour: number;
+}
+
+export interface CloudUser {
+  id: string;
+  email: string;
+  plan: string;
+  planPeriod: string | null;
+  subscriptionStatus: string;
+  profileLimit: number;
+  cloudProfilesUsed: number;
+  proxyBandwidthLimitMb: number;
+  proxyBandwidthUsedMb: number;
+  proxyBandwidthExtraMb: number;
+  teamId?: string;
+  teamName?: string;
+  teamRole?: string;
+  // This device's position among the user's active devices (oldest = 1).
+  // Ordinal 1 / isPrimaryDevice === true is the only device that can run
+  // browser automation. Optional: older backends omit them.
+  deviceOrdinal?: number | null;
+  deviceCount?: number | null;
+  isPrimaryDevice?: boolean | null;
+  // Plan-derived capabilities. The desktop resolves this before handing CloudUser
+  // to the UI; optional to stay safe on older cached state.
+  entitlements?: Entitlements;
+}
+
+export interface ProfileLockInfo {
+  profileId: string;
+  lockedBy: string;
+  lockedByEmail: string;
+  lockedAt: string;
+  expiresAt?: string;
+}
+
+export interface CloudAuthState {
+  user: CloudUser;
+  logged_in_at: string;
 }
 
 export interface ProfileSyncStatusEvent {
@@ -365,6 +424,7 @@ export interface WayfernConfig {
   fingerprint?: string; // JSON string of the complete fingerprint config
   randomize_fingerprint_on_launch?: boolean; // Generate new fingerprint on every launch
   os?: WayfernOS; // Operating system for fingerprint generation
+  geo_proxy_signature?: string; // Internal: routing the fingerprint's location was computed for
 }
 
 // Wayfern fingerprint config - matches the C++ FingerprintData structure

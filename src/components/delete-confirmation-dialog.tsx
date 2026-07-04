@@ -19,6 +19,12 @@ interface DeleteConfirmationDialogProps {
   title: string;
   description: string;
   confirmButtonText?: string;
+  confirmButtonVariant?:
+    | "default"
+    | "destructive"
+    | "outline"
+    | "secondary"
+    | "ghost";
   isLoading?: boolean;
   profileIds?: string[];
   profiles?: { id: string; name: string }[];
@@ -31,6 +37,7 @@ export function DeleteConfirmationDialog({
   title,
   description,
   confirmButtonText,
+  confirmButtonVariant = "destructive",
   isLoading = false,
   profileIds,
   profiles = [],
@@ -48,16 +55,19 @@ export function DeleteConfirmationDialog({
           <DialogDescription>{description}</DialogDescription>
           {profileIds && profileIds.length > 0 && (
             <div className="mt-4">
-              <p className="text-sm font-medium mb-2">
+              <p className="mb-2 text-sm font-medium">
                 {t("deleteDialog.profilesToDelete")}
               </p>
-              <div className="bg-muted rounded-md p-3 max-h-32 overflow-y-auto">
+              <div className="max-h-32 overflow-y-auto rounded-md bg-muted p-3">
                 <ul className="space-y-1">
                   {profileIds.map((id) => {
                     const profile = profiles.find((p) => p.id === id);
                     const displayName = profile ? profile.name : id;
                     return (
-                      <li key={id} className="text-sm text-muted-foreground">
+                      <li
+                        key={id}
+                        className="truncate text-sm text-muted-foreground"
+                      >
                         • {displayName}
                       </li>
                     );
@@ -76,7 +86,7 @@ export function DeleteConfirmationDialog({
             {t("common.buttons.cancel")}
           </RippleButton>
           <LoadingButton
-            variant="destructive"
+            variant={confirmButtonVariant}
             onClick={() => void handleConfirm()}
             isLoading={isLoading}
           >

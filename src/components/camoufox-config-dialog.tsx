@@ -149,7 +149,7 @@ export function CamoufoxConfigDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+      <DialogContent className="flex h-[min(85vh,52rem)] max-w-3xl flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle>
             {isRunning
@@ -164,7 +164,7 @@ export function CamoufoxConfigDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 h-[300px]">
+        <ScrollArea className="min-h-0 flex-1">
           <div className="py-4">
             {profile.browser === "wayfern" ? (
               <WayfernConfigForm
@@ -193,7 +193,7 @@ export function CamoufoxConfigDialog({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="shrink-0 pt-4 border-t">
+        <DialogFooter className="shrink-0 border-t pt-4">
           <RippleButton variant="outline" onClick={handleClose}>
             {isRunning ? t("common.buttons.close") : t("common.buttons.cancel")}
           </RippleButton>

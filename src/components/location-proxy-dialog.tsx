@@ -233,7 +233,7 @@ export function LocationProxyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="max-h-[calc(100vh-16rem)] min-h-0 space-y-4 overflow-y-auto pr-1">
           {/* Country - always visible */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">

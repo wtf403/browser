@@ -504,6 +504,7 @@ export function ProxyManagementDialog({
       },
       {
         id: "status",
+        size: 28,
         enableSorting: false,
         header: () => null,
         cell: ({ row }) => {
@@ -540,7 +541,7 @@ export function ProxyManagementDialog({
             onClick={() => {
               column.toggleSorting(column.getIsSorted() === "asc");
             }}
-            className="justify-start p-0 h-auto font-semibold text-left cursor-pointer"
+            className="h-auto cursor-pointer justify-start p-0 text-left font-semibold"
           >
             {t("common.labels.name")}
             {column.getIsSorted() === "asc" ? (
@@ -551,21 +552,36 @@ export function ProxyManagementDialog({
           </Button>
         ),
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.name}</span>
+          <span className="block truncate font-medium">
+            {row.original.name}
+          </span>
         ),
       },
       {
         id: "protocol",
+        size: 96,
         enableSorting: false,
         header: () => t("proxies.management.protocolCol"),
         cell: ({ row }) => (
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
             {row.original.proxy_settings.proxy_type}
           </span>
         ),
       },
       {
+        id: "hostPort",
+        enableSorting: false,
+        header: () => t("proxies.management.hostPort"),
+        cell: ({ row }) => (
+          <span className="block truncate font-mono text-xs text-muted-foreground">
+            {row.original.proxy_settings.host}:
+            {row.original.proxy_settings.port}
+          </span>
+        ),
+      },
+      {
         id: "usage",
+        size: 80,
         enableSorting: false,
         header: () => t("proxies.management.usage"),
         cell: ({ row }) => (
@@ -574,6 +590,7 @@ export function ProxyManagementDialog({
       },
       {
         id: "sync",
+        size: 96,
         enableSorting: false,
         header: () => t("proxies.management.syncCol"),
         cell: ({ row }) => {
@@ -607,6 +624,7 @@ export function ProxyManagementDialog({
       },
       {
         id: "actions",
+        size: 144,
         enableSorting: false,
         header: () => t("common.labels.actions"),
         cell: ({ row }) => {
@@ -756,7 +774,7 @@ export function ProxyManagementDialog({
             onClick={() => {
               column.toggleSorting(column.getIsSorted() === "asc");
             }}
-            className="justify-start p-0 h-auto font-semibold text-left cursor-pointer"
+            className="h-auto cursor-pointer justify-start p-0 text-left font-semibold"
           >
             {t("common.labels.name")}
             {column.getIsSorted() === "asc" ? (
@@ -775,7 +793,7 @@ export function ProxyManagementDialog({
             vpnSyncErrors[vpn.id],
           );
           return (
-            <div className="flex items-center gap-2 font-medium">
+            <div className="flex min-w-0 items-center gap-2 font-medium">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div
@@ -788,19 +806,21 @@ export function ProxyManagementDialog({
                   <p>{syncDot.tooltip}</p>
                 </TooltipContent>
               </Tooltip>
-              {vpn.name}
+              <span className="truncate">{vpn.name}</span>
             </div>
           );
         },
       },
       {
         id: "type",
+        size: 96,
         enableSorting: false,
         header: () => t("common.labels.type"),
         cell: () => <Badge variant="outline">WG</Badge>,
       },
       {
         id: "usage",
+        size: 80,
         enableSorting: false,
         header: () => t("proxies.management.usage"),
         cell: ({ row }) => (
@@ -809,6 +829,7 @@ export function ProxyManagementDialog({
       },
       {
         id: "sync",
+        size: 96,
         enableSorting: false,
         header: () => t("proxies.management.syncCol"),
         cell: ({ row }) => {
@@ -842,6 +863,7 @@ export function ProxyManagementDialog({
       },
       {
         id: "actions",
+        size: 144,
         enableSorting: false,
         header: () => t("common.labels.actions"),
         cell: ({ row }) => {
@@ -1068,7 +1090,7 @@ export function ProxyManagementDialog({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose} subPage={subPage}>
-        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+        <DialogContent className="flex max-h-[85vh] max-w-[min(80rem,calc(100%-4rem))] flex-col">
           {!subPage && (
             <DialogHeader>
               <DialogTitle>{t("proxies.management.title")}</DialogTitle>
@@ -1078,251 +1100,355 @@ export function ProxyManagementDialog({
             </DialogHeader>
           )}
 
-          <AnimatedTabs
-            key={initialTab}
-            defaultValue={initialTab}
-            onValueChange={(v) => setActiveTab(v as "proxies" | "vpns")}
-            className="flex-1 min-h-0 flex flex-col"
-          >
-            <div className="flex items-center justify-between gap-3 shrink-0">
-              <AnimatedTabsList>
-                <AnimatedTabsTrigger value="proxies">
-                  <span>{t("proxies.management.tabProxies")}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {storedProxies.length}
-                  </span>
-                </AnimatedTabsTrigger>
-                <AnimatedTabsTrigger value="vpns">
-                  <span>{t("proxies.management.tabVpns")}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {vpnConfigs.length}
-                  </span>
-                </AnimatedTabsTrigger>
-              </AnimatedTabsList>
-              <div className="flex items-center gap-2">
-                {activeTab === "proxies" && (
-                  <>
-                    <RippleButton
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setShowImportDialog(true);
-                      }}
-                      className="flex gap-2 items-center"
-                    >
-                      <LuUpload className="size-4" />
-                      {t("common.buttons.import")}
-                    </RippleButton>
-                    <RippleButton
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setShowExportDialog(true);
-                      }}
-                      className="flex gap-2 items-center"
-                      disabled={storedProxies.length === 0}
-                    >
-                      <LuDownload className="size-4" />
-                      {t("common.buttons.export")}
-                    </RippleButton>
-                    <RippleButton
-                      size="sm"
-                      onClick={handleCreateProxy}
-                      className="flex gap-2 items-center"
-                    >
-                      <GoPlus className="size-4" />
-                      {t("proxies.management.newProxy")}
-                    </RippleButton>
-                  </>
-                )}
-                {activeTab === "vpns" && (
-                  <>
-                    <RippleButton
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setShowVpnImportDialog(true);
-                      }}
-                      className="flex gap-2 items-center"
-                    >
-                      <LuUpload className="size-4" />
-                      {t("common.buttons.import")}
-                    </RippleButton>
-                    <RippleButton
-                      size="sm"
-                      onClick={handleCreateVpn}
-                      className="flex gap-2 items-center"
-                    >
-                      <GoPlus className="size-4" />
-                      {t("proxies.management.newVpn")}
-                    </RippleButton>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <AnimatedTabsContent
-              value="proxies"
-              className="mt-4 flex-1 min-h-0 data-[state=active]:flex flex-col"
+          <div className="@container flex min-h-0 w-full flex-1 flex-col">
+            <AnimatedTabs
+              key={initialTab}
+              defaultValue={initialTab}
+              onValueChange={(v) => setActiveTab(v as "proxies" | "vpns")}
+              className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="flex flex-col gap-4 flex-1 min-h-0">
-                {isLoading ? (
-                  <div className="text-sm text-muted-foreground">
-                    {t("proxies.management.loading")}
-                  </div>
-                ) : storedProxies.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    {t("proxies.management.noneCreated")}
-                  </div>
-                ) : (
-                  <FadingScrollArea
-                    className="flex-1 min-h-0"
-                    style={
-                      {
-                        "--scroll-fade-top-offset": "32px",
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Table className="w-full">
-                      <TableHeader className="sticky top-0 z-10 bg-background">
-                        {proxiesTable.getHeaderGroups().map((headerGroup) => (
-                          <TableRow key={headerGroup.id}>
-                            {headerGroup.headers.map((header) => (
-                              <TableHead
-                                key={header.id}
-                                style={{
-                                  width: header.column.columnDef.size
-                                    ? `${header.column.getSize()}px`
-                                    : undefined,
-                                }}
-                                className={cn(
-                                  header.column.id !== "name" &&
-                                    header.column.id !== "select" &&
-                                    "whitespace-nowrap w-px",
-                                )}
-                              >
-                                {header.isPlaceholder
-                                  ? null
-                                  : flexRender(
-                                      header.column.columnDef.header,
-                                      header.getContext(),
-                                    )}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableHeader>
-                      <TableBody>
-                        {proxiesTable.getRowModel().rows.map((row) => (
-                          <TableRow
-                            key={row.id}
-                            data-state={row.getIsSelected() && "selected"}
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+                <AnimatedTabsList>
+                  <AnimatedTabsTrigger value="proxies">
+                    <span>{t("proxies.management.tabProxies")}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {storedProxies.length}
+                    </span>
+                  </AnimatedTabsTrigger>
+                  <AnimatedTabsTrigger value="vpns">
+                    <span>{t("proxies.management.tabVpns")}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {vpnConfigs.length}
+                    </span>
+                  </AnimatedTabsTrigger>
+                </AnimatedTabsList>
+                <div className="flex items-center gap-2">
+                  {activeTab === "proxies" && (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RippleButton
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setShowImportDialog(true);
+                            }}
+                            className="flex items-center gap-2"
+                            aria-label={t("common.buttons.import")}
                           >
-                            {row.getVisibleCells().map((cell) => (
-                              <TableCell
-                                key={cell.id}
-                                style={{
-                                  width: cell.column.columnDef.size
-                                    ? `${cell.column.getSize()}px`
-                                    : undefined,
-                                }}
-                              >
-                                {flexRender(
-                                  cell.column.columnDef.cell,
-                                  cell.getContext(),
-                                )}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </FadingScrollArea>
-                )}
+                            <LuUpload className="size-4" />
+                            <span className="hidden @2xl:inline">
+                              {t("common.buttons.import")}
+                            </span>
+                          </RippleButton>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{t("common.buttons.import")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RippleButton
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setShowExportDialog(true);
+                            }}
+                            className="flex items-center gap-2"
+                            aria-label={t("common.buttons.export")}
+                            disabled={storedProxies.length === 0}
+                          >
+                            <LuDownload className="size-4" />
+                            <span className="hidden @2xl:inline">
+                              {t("common.buttons.export")}
+                            </span>
+                          </RippleButton>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{t("common.buttons.export")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RippleButton
+                            size="sm"
+                            onClick={handleCreateProxy}
+                            className="flex items-center gap-2"
+                            aria-label={t("proxies.management.newProxy")}
+                          >
+                            <GoPlus className="size-4" />
+                            <span className="hidden @2xl:inline">
+                              {t("proxies.management.newProxy")}
+                            </span>
+                          </RippleButton>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{t("proxies.management.newProxy")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </>
+                  )}
+                  {activeTab === "vpns" && (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RippleButton
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setShowVpnImportDialog(true);
+                            }}
+                            className="flex items-center gap-2"
+                            aria-label={t("common.buttons.import")}
+                          >
+                            <LuUpload className="size-4" />
+                            <span className="hidden @2xl:inline">
+                              {t("common.buttons.import")}
+                            </span>
+                          </RippleButton>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{t("common.buttons.import")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RippleButton
+                            size="sm"
+                            onClick={handleCreateVpn}
+                            className="flex items-center gap-2"
+                            aria-label={t("proxies.management.newVpn")}
+                          >
+                            <GoPlus className="size-4" />
+                            <span className="hidden @2xl:inline">
+                              {t("proxies.management.newVpn")}
+                            </span>
+                          </RippleButton>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{t("proxies.management.newVpn")}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </>
+                  )}
+                </div>
               </div>
-            </AnimatedTabsContent>
 
-            <AnimatedTabsContent
-              value="vpns"
-              className="mt-4 flex-1 min-h-0 data-[state=active]:flex flex-col"
-            >
-              <div className="flex flex-col gap-4 flex-1 min-h-0">
-                {isLoadingVpns ? (
-                  <div className="text-sm text-muted-foreground">
-                    {t("vpns.management.loading")}
-                  </div>
-                ) : vpnConfigs.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    {t("vpns.management.noneCreated")}
-                  </div>
-                ) : (
-                  <FadingScrollArea
-                    className="flex-1 min-h-0"
-                    style={
-                      {
-                        "--scroll-fade-top-offset": "32px",
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Table className="w-full">
-                      <TableHeader className="sticky top-0 z-10 bg-background">
-                        {vpnsTable.getHeaderGroups().map((headerGroup) => (
-                          <TableRow key={headerGroup.id}>
-                            {headerGroup.headers.map((header) => (
-                              <TableHead
-                                key={header.id}
-                                style={{
-                                  width: header.column.columnDef.size
-                                    ? `${header.column.getSize()}px`
-                                    : undefined,
-                                }}
-                                className={cn(
-                                  header.column.id !== "name" &&
-                                    header.column.id !== "select" &&
-                                    "whitespace-nowrap w-px",
-                                )}
-                              >
-                                {header.isPlaceholder
-                                  ? null
-                                  : flexRender(
-                                      header.column.columnDef.header,
-                                      header.getContext(),
-                                    )}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableHeader>
-                      <TableBody>
-                        {vpnsTable.getRowModel().rows.map((row) => (
-                          <TableRow
-                            key={row.id}
-                            data-state={row.getIsSelected() && "selected"}
-                          >
-                            {row.getVisibleCells().map((cell) => (
-                              <TableCell
-                                key={cell.id}
-                                style={{
-                                  width: cell.column.columnDef.size
-                                    ? `${cell.column.getSize()}px`
-                                    : undefined,
-                                }}
-                              >
-                                {flexRender(
-                                  cell.column.columnDef.cell,
-                                  cell.getContext(),
-                                )}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </FadingScrollArea>
-                )}
-              </div>
-            </AnimatedTabsContent>
-          </AnimatedTabs>
+              <AnimatedTabsContent
+                value="proxies"
+                className="mt-4 min-h-0 flex-1 flex-col data-[state=active]:flex"
+              >
+                <div className="flex min-h-0 flex-1 flex-col gap-4">
+                  {isLoading ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("proxies.management.loading")}
+                    </div>
+                  ) : storedProxies.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("proxies.management.noneCreated")}
+                    </div>
+                  ) : (
+                    <FadingScrollArea
+                      className={cn(
+                        "min-h-0 flex-1",
+                        selectedProxies.length > 0 && "pb-16",
+                      )}
+                      style={
+                        {
+                          "--scroll-fade-top-offset": "32px",
+                        } as React.CSSProperties
+                      }
+                    >
+                      <Table
+                        className="w-full table-fixed"
+                        containerClassName="overflow-visible"
+                      >
+                        <TableHeader className="sticky top-0 z-10 bg-background">
+                          {proxiesTable.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                              {headerGroup.headers.map((header) => (
+                                <TableHead
+                                  key={header.id}
+                                  style={{
+                                    width:
+                                      header.column.id === "name" ||
+                                      header.column.id === "hostPort"
+                                        ? undefined
+                                        : `${header.column.getSize()}px`,
+                                  }}
+                                  className={cn(
+                                    // name and hostPort emit no width, so
+                                    // fixed layout splits the remaining
+                                    // space evenly between them (hostPort
+                                    // hides below @2xl, leaving name all
+                                    // of it).
+                                    header.column.id === "name" && "max-w-0",
+                                    header.column.id === "hostPort" &&
+                                      "hidden max-w-0 @2xl:table-cell",
+                                    (header.column.id === "protocol" ||
+                                      header.column.id === "type") &&
+                                      "hidden @2xl:table-cell",
+                                  )}
+                                >
+                                  {header.isPlaceholder
+                                    ? null
+                                    : flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext(),
+                                      )}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableHeader>
+                        <TableBody>
+                          {proxiesTable.getRowModel().rows.map((row) => (
+                            <TableRow
+                              key={row.id}
+                              data-state={row.getIsSelected() && "selected"}
+                            >
+                              {row.getVisibleCells().map((cell) => (
+                                <TableCell
+                                  key={cell.id}
+                                  style={{
+                                    width:
+                                      cell.column.id === "name" ||
+                                      cell.column.id === "hostPort"
+                                        ? undefined
+                                        : `${cell.column.getSize()}px`,
+                                  }}
+                                  className={cn(
+                                    cell.column.id === "name" && "max-w-0",
+                                    cell.column.id === "hostPort" &&
+                                      "hidden max-w-0 @2xl:table-cell",
+                                    (cell.column.id === "protocol" ||
+                                      cell.column.id === "type") &&
+                                      "hidden @2xl:table-cell",
+                                  )}
+                                >
+                                  {flexRender(
+                                    cell.column.columnDef.cell,
+                                    cell.getContext(),
+                                  )}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </FadingScrollArea>
+                  )}
+                </div>
+              </AnimatedTabsContent>
+
+              <AnimatedTabsContent
+                value="vpns"
+                className="mt-4 min-h-0 flex-1 flex-col data-[state=active]:flex"
+              >
+                <div className="flex min-h-0 flex-1 flex-col gap-4">
+                  {isLoadingVpns ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("vpns.management.loading")}
+                    </div>
+                  ) : vpnConfigs.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("vpns.management.noneCreated")}
+                    </div>
+                  ) : (
+                    <FadingScrollArea
+                      className={cn(
+                        "min-h-0 flex-1",
+                        selectedVpns.length > 0 && "pb-16",
+                      )}
+                      style={
+                        {
+                          "--scroll-fade-top-offset": "32px",
+                        } as React.CSSProperties
+                      }
+                    >
+                      <Table
+                        className="w-full table-fixed"
+                        containerClassName="overflow-visible"
+                      >
+                        <TableHeader className="sticky top-0 z-10 bg-background">
+                          {vpnsTable.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                              {headerGroup.headers.map((header) => (
+                                <TableHead
+                                  key={header.id}
+                                  style={{
+                                    width:
+                                      header.column.id === "name" ||
+                                      header.column.id === "hostPort"
+                                        ? undefined
+                                        : `${header.column.getSize()}px`,
+                                  }}
+                                  className={cn(
+                                    // name and hostPort emit no width, so
+                                    // fixed layout splits the remaining
+                                    // space evenly between them (hostPort
+                                    // hides below @2xl, leaving name all
+                                    // of it).
+                                    header.column.id === "name" && "max-w-0",
+                                    header.column.id === "hostPort" &&
+                                      "hidden max-w-0 @2xl:table-cell",
+                                    (header.column.id === "protocol" ||
+                                      header.column.id === "type") &&
+                                      "hidden @2xl:table-cell",
+                                  )}
+                                >
+                                  {header.isPlaceholder
+                                    ? null
+                                    : flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext(),
+                                      )}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableHeader>
+                        <TableBody>
+                          {vpnsTable.getRowModel().rows.map((row) => (
+                            <TableRow
+                              key={row.id}
+                              data-state={row.getIsSelected() && "selected"}
+                            >
+                              {row.getVisibleCells().map((cell) => (
+                                <TableCell
+                                  key={cell.id}
+                                  style={{
+                                    width:
+                                      cell.column.id === "name" ||
+                                      cell.column.id === "hostPort"
+                                        ? undefined
+                                        : `${cell.column.getSize()}px`,
+                                  }}
+                                  className={cn(
+                                    cell.column.id === "name" && "max-w-0",
+                                    cell.column.id === "hostPort" &&
+                                      "hidden max-w-0 @2xl:table-cell",
+                                    (cell.column.id === "protocol" ||
+                                      cell.column.id === "type") &&
+                                      "hidden @2xl:table-cell",
+                                  )}
+                                >
+                                  {flexRender(
+                                    cell.column.columnDef.cell,
+                                    cell.getContext(),
+                                  )}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </FadingScrollArea>
+                  )}
+                </div>
+              </AnimatedTabsContent>
+            </AnimatedTabs>
+          </div>
 
           {!subPage && (
             <DialogFooter>

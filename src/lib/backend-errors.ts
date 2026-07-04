@@ -22,6 +22,7 @@ export type BackendErrorCode =
   | "SELF_HOSTED_REQUIRES_LOGOUT"
   | "PROXY_NOT_FOUND"
   | "GROUP_NOT_FOUND"
+  | "GROUP_ALREADY_EXISTS"
   | "VPN_NOT_FOUND"
   | "EXTENSION_NOT_FOUND"
   | "EXTENSION_GROUP_NOT_FOUND"
@@ -32,6 +33,7 @@ export type BackendErrorCode =
   | "PROXY_NOT_WORKING"
   | "PROXY_PAYMENT_REQUIRED"
   | "VPN_NOT_WORKING"
+  | "CAMOUFOX_IMPORT_DEPRECATED"
   | "INTERNAL_ERROR";
 
 export interface BackendError {
@@ -112,6 +114,8 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.proxyNotFound");
     case "GROUP_NOT_FOUND":
       return t("backendErrors.groupNotFound");
+    case "GROUP_ALREADY_EXISTS":
+      return t("backendErrors.groupAlreadyExists");
     case "VPN_NOT_FOUND":
       return t("backendErrors.vpnNotFound");
     case "EXTENSION_NOT_FOUND":
@@ -132,6 +136,8 @@ export function translateBackendError(t: TFunction, err: unknown): string {
       return t("backendErrors.proxyPaymentRequired");
     case "VPN_NOT_WORKING":
       return t("backendErrors.vpnNotWorking");
+    case "CAMOUFOX_IMPORT_DEPRECATED":
+      return t("backendErrors.camoufoxImportDeprecated");
     case "INTERNAL_ERROR":
       return t("backendErrors.internal", {
         detail: parsed.params?.detail ?? "",

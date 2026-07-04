@@ -57,14 +57,29 @@ pub struct ApiProfileResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateProfileRequest {
   pub name: String,
+  /// Browser engine. Must be `"wayfern"` (anti-detect Chromium) or `"camoufox"`
+  /// (anti-detect Firefox). Any other value (e.g. `"chromium"`) is rejected with
+  /// 400.
   pub browser: String,
-  pub version: String,
+  /// Optional. Omit (or pass `"latest"`) to use the newest already-downloaded
+  /// version of the chosen browser. A concrete version must already be
+  /// downloaded; the create path does not fetch new versions.
+  #[serde(default)]
+  pub version: Option<String>,
   pub proxy_id: Option<String>,
   pub vpn_id: Option<String>,
   pub launch_hook: Option<String>,
   pub release_type: Option<String>,
+  /// Camoufox fingerprint/config. Send only when `browser` is `"camoufox"`.
+  /// Omit it, or pass an empty object `{}`, to have a fresh fingerprint
+  /// generated automatically at creation. Provide a `fingerprint` field to
+  /// pin a specific one.
   #[schema(value_type = Object)]
   pub camoufox_config: Option<serde_json::Value>,
+  /// Wayfern fingerprint/config. Send only when `browser` is `"wayfern"`.
+  /// Omit it, or pass an empty object `{}`, to have a fresh fingerprint
+  /// generated automatically at creation. Provide a `fingerprint` field to
+  /// pin a specific one.
   #[schema(value_type = Object)]
   pub wayfern_config: Option<serde_json::Value>,
   pub group_id: Option<String>,
@@ -74,7 +89,9 @@ pub struct CreateProfileRequest {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdateProfileRequest {
   pub name: Option<String>,
-  pub browser: Option<String>,
+  // No `browser` field: a profile's engine is fixed at creation (changing it
+  // would invalidate the generated fingerprint and on-disk profile dir).
+  // Accepting it here only to silently ignore it misled API clients.
   pub version: Option<String>,
   pub proxy_id: Option<String>,
   pub vpn_id: Option<String>,
@@ -230,6 +247,52 @@ struct ImportCookiesResponse {
   errors: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+struct BatchRunRequest {
+  /// Profile IDs to launch.
+  profile_ids: Vec<String>,
+  /// Optional URL to open in every launched profile.
+  url: Option<String>,
+  /// Launch headless. Defaults to false.
+  headless: Option<bool>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct BatchRunResult {
+  profile_id: String,
+  /// Whether this profile launched successfully.
+  ok: bool,
+  /// Remote debugging port if launched, otherwise null.
+  remote_debugging_port: Option<u16>,
+  /// Failure reason if not launched, otherwise null.
+  error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct BatchRunResponse {
+  results: Vec<BatchRunResult>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+struct BatchStopRequest {
+  /// Profile IDs to stop.
+  profile_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct BatchStopResult {
+  profile_id: String,
+  /// Whether this profile was stopped successfully.
+  ok: bool,
+  /// Failure reason if not stopped, otherwise null.
+  error: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct BatchStopResponse {
+  results: Vec<BatchStopResult>,
+}
+
 #[derive(OpenApi)]
 #[openapi(
   paths(
@@ -241,6 +304,8 @@ struct ImportCookiesResponse {
     run_profile,
     open_url_in_profile,
     kill_profile,
+    batch_run_profiles,
+    batch_stop_profiles,
     import_profile_cookies,
     get_groups,
     get_group,
@@ -283,6 +348,12 @@ struct ImportCookiesResponse {
     DownloadBrowserResponse,
     RunProfileResponse,
     RunProfileRequest,
+    BatchRunRequest,
+    BatchRunResult,
+    BatchRunResponse,
+    BatchStopRequest,
+    BatchStopResult,
+    BatchStopResponse,
     OpenUrlRequest,
     ImportCookiesRequest,
     ImportCookiesResponse,
@@ -382,6 +453,8 @@ impl ApiServer {
       .routes(routes!(run_profile))
       .routes(routes!(open_url_in_profile))
       .routes(routes!(kill_profile))
+      .routes(routes!(batch_run_profiles))
+      .routes(routes!(batch_stop_profiles))
       .routes(routes!(import_profile_cookies))
       .routes(routes!(get_groups, create_group))
       .routes(routes!(get_group, update_group, delete_group))
@@ -405,6 +478,9 @@ impl ApiServer {
     let api = ApiDoc::openapi();
 
     let v1_routes = v1_routes
+      // Inert chokepoint (innermost → runs after auth) for the future per-hour
+      // automation request limit. See rate_limit_middleware.
+      .layer(middleware::from_fn(rate_limit_middleware))
       .layer(middleware::from_fn_with_state(
         state.clone(),
         auth_middleware,
@@ -508,8 +584,14 @@ async fn auth_middleware(
     }
   };
 
-  // Compare tokens
-  if token != stored_token {
+  // Constant-time comparison so the auth check doesn't leak the shared-prefix
+  // length via timing. `ConstantTimeEq` on equal-length byte slices; differing
+  // lengths simply compare unequal.
+  use subtle::ConstantTimeEq;
+  let token_bytes = token.as_bytes();
+  let stored_bytes = stored_token.as_bytes();
+  let matches = token_bytes.len() == stored_bytes.len() && token_bytes.ct_eq(stored_bytes).into();
+  if !matches {
     log::warn!("[api] Rejected {path}: token mismatch");
     return Err(StatusCode::UNAUTHORIZED);
   }
@@ -548,6 +630,20 @@ async fn request_logging_middleware(request: axum::extract::Request, next: Next)
   }
 
   response
+}
+
+/// Chokepoint for the future per-hour automation request limit. The limit
+/// (`requests_per_hour`, default 100) is already plumbed through entitlements;
+/// this middleware is intentionally inert today — it resolves the limit but
+/// never blocks. To enforce, count authenticated requests per rolling hour and
+/// return `StatusCode::TOO_MANY_REQUESTS` once the limit (when > 0) is exceeded.
+async fn rate_limit_middleware(
+  request: axum::extract::Request,
+  next: Next,
+) -> Result<Response, StatusCode> {
+  let _requests_per_hour = crate::cloud_auth::CLOUD_AUTH.requests_per_hour().await;
+  // TODO(rate-limit): enforce `_requests_per_hour` for automation routes.
+  Ok(next.run(request).await)
 }
 
 // Global API server instance
@@ -694,14 +790,24 @@ async fn get_profile(
   }
 }
 
+/// Create a profile.
+///
+/// - `browser` must be `"wayfern"` or `"camoufox"`; any other value is rejected
+///   with 400.
+/// - `version` is optional: omit it or pass `"latest"` to use the newest
+///   already-downloaded version of that browser. The version must be present
+///   locally (this endpoint does not download new versions); 400 if none is.
+/// - Omitting the matching `wayfern_config`/`camoufox_config`, or passing an
+///   empty object `{}`, generates a fresh fingerprint automatically.
 #[utoipa::path(
   post,
   path = "/v1/profiles",
   request_body = CreateProfileRequest,
   responses(
     (status = 200, description = "Profile created successfully", body = ApiProfileResponse),
-    (status = 400, description = "Bad request"),
+    (status = 400, description = "Invalid browser, or no downloaded version available"),
     (status = 401, description = "Unauthorized"),
+    (status = 402, description = "Selected proxy requires payment"),
     (status = 500, description = "Internal server error")
   ),
   security(
@@ -712,8 +818,50 @@ async fn get_profile(
 async fn create_profile(
   State(state): State<ApiServerState>,
   Json(request): Json<CreateProfileRequest>,
-) -> Result<Json<ApiProfileResponse>, StatusCode> {
+) -> Result<Json<ApiProfileResponse>, (StatusCode, String)> {
   let profile_manager = ProfileManager::instance();
+
+  // Only Wayfern and Camoufox profiles are launchable; the rest of the system
+  // (fingerprint generation, launch, run) supports nothing else. Reject anything
+  // else up front — otherwise the profile is created with no fingerprint and an
+  // unrecognized browser, then crashes with a 500 on /run. Mirrors the MCP
+  // create_profile validation.
+  if request.browser != "wayfern" && request.browser != "camoufox" {
+    return Err((
+      StatusCode::BAD_REQUEST,
+      format!(
+        "Invalid browser \"{}\". Must be \"wayfern\" (anti-detect Chromium) or \"camoufox\" (anti-detect Firefox).",
+        request.browser
+      ),
+    ));
+  }
+
+  // Resolve the version. Omitted, empty, or "latest" means "newest version
+  // already downloaded for this browser". The create path generates the
+  // fingerprint by launching that binary, so the version must be present
+  // locally — we don't fetch new versions here. 400 if none is downloaded.
+  let version = match request.version.as_deref() {
+    Some(v) if !v.is_empty() && v != "latest" => v.to_string(),
+    _ => {
+      let registry = crate::downloaded_browsers_registry::DownloadedBrowsersRegistry::instance();
+      let mut versions = registry.get_downloaded_versions(&request.browser);
+      // browsers is a HashMap, so keys are unordered — sort newest-first by
+      // semver before taking the latest.
+      versions.sort_by(|a, b| crate::api_client::compare_versions(b, a));
+      match versions.into_iter().next() {
+        Some(v) => v,
+        None => {
+          return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+              "No downloaded version of \"{}\" is available. Download the browser in Donut Browser first — this endpoint does not download browsers.",
+              request.browser
+            ),
+          ));
+        }
+      }
+    }
+  };
 
   // Parse camoufox config if provided
   let camoufox_config = if let Some(config) = &request.camoufox_config {
@@ -735,9 +883,15 @@ async fn create_profile(
     crate::validate_profile_network(request.proxy_id.as_deref(), request.vpn_id.as_deref()).await
   {
     return Err(if err.contains("PROXY_PAYMENT_REQUIRED") {
-      StatusCode::PAYMENT_REQUIRED
+      (
+        StatusCode::PAYMENT_REQUIRED,
+        "The selected proxy requires an active subscription.".to_string(),
+      )
     } else {
-      StatusCode::BAD_REQUEST
+      (
+        StatusCode::BAD_REQUEST,
+        format!("Profile network validation failed: {err}"),
+      )
     });
   }
 
@@ -747,7 +901,7 @@ async fn create_profile(
       &state.app_handle,
       &request.name,
       &request.browser,
-      &request.version,
+      &version,
       request.release_type.as_deref().unwrap_or("stable"),
       request.proxy_id.clone(),
       request.vpn_id.clone(),
@@ -767,7 +921,10 @@ async fn create_profile(
           .update_profile_tags(&state.app_handle, &profile.name, tags.clone())
           .is_err()
         {
-          return Err(StatusCode::INTERNAL_SERVER_ERROR);
+          return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Profile created but failed to apply tags.".to_string(),
+          ));
         }
         profile.tags = tags.clone();
       }
@@ -799,7 +956,10 @@ async fn create_profile(
         },
       }))
     }
-    Err(_) => Err(StatusCode::BAD_REQUEST),
+    Err(e) => Err((
+      StatusCode::BAD_REQUEST,
+      format!("Failed to create profile: {e}"),
+    )),
   }
 }
 
@@ -895,6 +1055,14 @@ async fn update_profile(
   }
 
   if let Some(camoufox_config) = request.camoufox_config {
+    // Editing a profile's fingerprint config is part of the cross-OS fingerprint
+    // capability (GUI, API, MCP). Viewing it is free; mutating it is not.
+    if !crate::cloud_auth::CLOUD_AUTH
+      .can_use_cross_os_fingerprints()
+      .await
+    {
+      return Err(StatusCode::PAYMENT_REQUIRED);
+    }
     let config: Result<CamoufoxConfig, _> = serde_json::from_value(camoufox_config);
     match config {
       Ok(config) => {
@@ -1712,6 +1880,13 @@ async fn run_profile(
   State(state): State<ApiServerState>,
   Json(request): Json<RunProfileRequest>,
 ) -> Result<Json<RunProfileResponse>, StatusCode> {
+  if !crate::cloud_auth::CLOUD_AUTH
+    .can_use_browser_automation()
+    .await
+  {
+    return Err(StatusCode::PAYMENT_REQUIRED);
+  }
+
   let headless = request.headless.unwrap_or(false);
   let url = request.url;
 
@@ -1728,6 +1903,11 @@ async fn run_profile(
   if profile.is_cross_os() {
     return Err(StatusCode::BAD_REQUEST);
   }
+
+  // Team lock check
+  crate::team_lock::acquire_team_lock_if_needed(profile)
+    .await
+    .map_err(|_| StatusCode::CONFLICT)?;
 
   let remote_debugging_port = {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1786,6 +1966,13 @@ async fn open_url_in_profile(
   State(state): State<ApiServerState>,
   Json(request): Json<OpenUrlRequest>,
 ) -> Result<StatusCode, StatusCode> {
+  if !crate::cloud_auth::CLOUD_AUTH
+    .can_use_browser_automation()
+    .await
+  {
+    return Err(StatusCode::PAYMENT_REQUIRED);
+  }
+
   let browser_runner = crate::browser_runner::BrowserRunner::instance();
 
   browser_runner
@@ -1819,6 +2006,15 @@ async fn kill_profile(
   Path(id): Path<String>,
   State(state): State<ApiServerState>,
 ) -> Result<StatusCode, StatusCode> {
+  // Programmatically launching and stopping profiles is a paid feature; the
+  // run/open-url handlers gate the same way.
+  if !crate::cloud_auth::CLOUD_AUTH
+    .can_use_browser_automation()
+    .await
+  {
+    return Err(StatusCode::PAYMENT_REQUIRED);
+  }
+
   let profile_manager = ProfileManager::instance();
   let profiles = profile_manager
     .list_profiles()
@@ -1835,8 +2031,173 @@ async fn kill_profile(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+  crate::team_lock::release_team_lock_if_needed(profile).await;
 
   Ok(StatusCode::NO_CONTENT)
+}
+
+// API Handler - Batch run profiles (paid: browser automation). Mirrors the
+// single `/run` gate; never breaks the batch on a single profile's failure —
+// each profile gets its own result entry.
+#[utoipa::path(
+  post,
+  path = "/v1/profiles/batch/run",
+  request_body = BatchRunRequest,
+  responses(
+    (status = 200, description = "Batch launch completed; inspect per-profile results", body = BatchRunResponse),
+    (status = 401, description = "Unauthorized"),
+    (status = 402, description = "Active paid plan with browser automation required"),
+    (status = 500, description = "Internal server error")
+  ),
+  security(
+    ("bearer_auth" = [])
+  ),
+  tag = "profiles"
+)]
+async fn batch_run_profiles(
+  State(state): State<ApiServerState>,
+  Json(request): Json<BatchRunRequest>,
+) -> Result<Json<BatchRunResponse>, StatusCode> {
+  if !crate::cloud_auth::CLOUD_AUTH
+    .can_use_browser_automation()
+    .await
+  {
+    return Err(StatusCode::PAYMENT_REQUIRED);
+  }
+
+  let headless = request.headless.unwrap_or(false);
+  let profile_manager = ProfileManager::instance();
+  let profiles = profile_manager
+    .list_profiles()
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+  let mut results = Vec::with_capacity(request.profile_ids.len());
+  for profile_id in &request.profile_ids {
+    let fail = |error: &str| BatchRunResult {
+      profile_id: profile_id.clone(),
+      ok: false,
+      remote_debugging_port: None,
+      error: Some(error.to_string()),
+    };
+
+    let Some(profile) = profiles.iter().find(|p| p.id.to_string() == *profile_id) else {
+      results.push(fail("profile not found"));
+      continue;
+    };
+    if profile.is_cross_os() {
+      results.push(fail("cross-OS profiles cannot be launched"));
+      continue;
+    }
+    if crate::team_lock::acquire_team_lock_if_needed(profile)
+      .await
+      .is_err()
+    {
+      results.push(fail("profile is locked by another team member"));
+      continue;
+    }
+
+    let port = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+      Ok(listener) => match listener.local_addr() {
+        Ok(addr) => addr.port(),
+        Err(_) => {
+          results.push(fail("failed to allocate debugging port"));
+          continue;
+        }
+      },
+      Err(_) => {
+        results.push(fail("failed to allocate debugging port"));
+        continue;
+      }
+    };
+
+    match crate::browser_runner::launch_browser_profile_impl(
+      state.app_handle.clone(),
+      profile.clone(),
+      request.url.clone(),
+      Some(port),
+      headless,
+      true,
+    )
+    .await
+    {
+      Ok(_) => results.push(BatchRunResult {
+        profile_id: profile_id.clone(),
+        ok: true,
+        remote_debugging_port: Some(port),
+        error: None,
+      }),
+      Err(e) => results.push(fail(&format!("launch failed: {e}"))),
+    }
+  }
+
+  Ok(Json(BatchRunResponse { results }))
+}
+
+// API Handler - Batch stop profiles (paid: browser automation).
+#[utoipa::path(
+  post,
+  path = "/v1/profiles/batch/stop",
+  request_body = BatchStopRequest,
+  responses(
+    (status = 200, description = "Batch stop completed; inspect per-profile results", body = BatchStopResponse),
+    (status = 401, description = "Unauthorized"),
+    (status = 402, description = "Active paid plan with browser automation required"),
+    (status = 500, description = "Internal server error")
+  ),
+  security(
+    ("bearer_auth" = [])
+  ),
+  tag = "profiles"
+)]
+async fn batch_stop_profiles(
+  State(state): State<ApiServerState>,
+  Json(request): Json<BatchStopRequest>,
+) -> Result<Json<BatchStopResponse>, StatusCode> {
+  if !crate::cloud_auth::CLOUD_AUTH
+    .can_use_browser_automation()
+    .await
+  {
+    return Err(StatusCode::PAYMENT_REQUIRED);
+  }
+
+  let profile_manager = ProfileManager::instance();
+  let profiles = profile_manager
+    .list_profiles()
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+  let browser_runner = crate::browser_runner::BrowserRunner::instance();
+
+  let mut results = Vec::with_capacity(request.profile_ids.len());
+  for profile_id in &request.profile_ids {
+    let Some(profile) = profiles.iter().find(|p| p.id.to_string() == *profile_id) else {
+      results.push(BatchStopResult {
+        profile_id: profile_id.clone(),
+        ok: false,
+        error: Some("profile not found".to_string()),
+      });
+      continue;
+    };
+
+    match browser_runner
+      .kill_browser_process(state.app_handle.clone(), profile)
+      .await
+    {
+      Ok(_) => {
+        crate::team_lock::release_team_lock_if_needed(profile).await;
+        results.push(BatchStopResult {
+          profile_id: profile_id.clone(),
+          ok: true,
+          error: None,
+        });
+      }
+      Err(e) => results.push(BatchStopResult {
+        profile_id: profile_id.clone(),
+        ok: false,
+        error: Some(format!("stop failed: {e}")),
+      }),
+    }
+  }
+
+  Ok(Json(BatchStopResponse { results }))
 }
 
 #[utoipa::path(
@@ -2025,8 +2386,8 @@ pub struct WayfernTokenResponse {
 async fn get_wayfern_token(
   State(_state): State<ApiServerState>,
 ) -> Result<Json<WayfernTokenResponse>, StatusCode> {
-  // Cloud auth removed - always return None
-  Ok(Json(WayfernTokenResponse { token: None }))
+  let token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+  Ok(Json(WayfernTokenResponse { token }))
 }
 
 #[utoipa::path(
@@ -2045,6 +2406,65 @@ async fn get_wayfern_token(
 async fn refresh_wayfern_token(
   State(_state): State<ApiServerState>,
 ) -> Result<Json<WayfernTokenResponse>, (StatusCode, String)> {
-  // Cloud auth removed - always return None
-  Ok(Json(WayfernTokenResponse { token: None }))
+  crate::cloud_auth::CLOUD_AUTH
+    .request_wayfern_token()
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+  let token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
+  Ok(Json(WayfernTokenResponse { token }))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // Removing `browser` from UpdateProfileRequest, and rejecting invalid
+  // `browser` values on create, must NOT make the API reject requests that
+  // carry extra/unknown fields — old clients still send them. serde ignores
+  // unknown fields by default; these tests lock that in so a future
+  // `#[serde(deny_unknown_fields)]` can't silently break compatibility.
+  #[test]
+  fn update_profile_request_ignores_unknown_fields() {
+    // `browser` is no longer a field, plus a wholly unknown field. Both must
+    // be accepted and ignored, not rejected.
+    let json = r#"{"name": "p", "browser": "wayfern", "totally_unknown": 123}"#;
+    let parsed: UpdateProfileRequest =
+      serde_json::from_str(json).expect("unknown fields must be ignored, not rejected");
+    assert_eq!(parsed.name.as_deref(), Some("p"));
+  }
+
+  #[test]
+  fn create_profile_request_ignores_unknown_fields() {
+    let json = r#"{"name": "p", "browser": "wayfern", "version": "latest", "future_field": true}"#;
+    let parsed: CreateProfileRequest =
+      serde_json::from_str(json).expect("unknown fields must be ignored, not rejected");
+    assert_eq!(parsed.browser, "wayfern");
+  }
+
+  #[test]
+  fn create_profile_request_allows_omitting_version_and_configs() {
+    // Minimal body: no version, no wayfern_config/camoufox_config. Must
+    // deserialize (version resolves to latest-downloaded at the handler; an
+    // absent config triggers fresh-fingerprint generation).
+    let json = r#"{"name": "p", "browser": "wayfern"}"#;
+    let parsed: CreateProfileRequest =
+      serde_json::from_str(json).expect("version and configs are optional");
+    assert_eq!(parsed.browser, "wayfern");
+    assert!(parsed.version.is_none());
+    assert!(parsed.wayfern_config.is_none());
+    assert!(parsed.camoufox_config.is_none());
+  }
+
+  #[test]
+  fn create_profile_browser_validation_matches_supported_engines() {
+    // The handler rejects anything that isn't a launchable engine; this is the
+    // same predicate it uses, kept in lockstep with MCP's create_profile.
+    let is_valid = |b: &str| b == "wayfern" || b == "camoufox";
+    assert!(is_valid("wayfern"));
+    assert!(is_valid("camoufox"));
+    assert!(!is_valid("chromium"));
+    assert!(!is_valid("firefox"));
+    assert!(!is_valid(""));
+  }
 }
