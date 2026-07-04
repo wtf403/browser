@@ -1724,56 +1724,27 @@ rm "{}"
 
 #[tauri::command]
 pub async fn check_for_app_updates() -> Result<Option<AppUpdateInfo>, String> {
-  if crate::app_dirs::is_portable() {
-    log::info!("App auto-updates disabled in portable mode");
-    return Ok(None);
-  }
-  // The disable_auto_updates setting controls app self-updates only
-  let disabled = crate::settings_manager::SettingsManager::instance()
-    .load_settings()
-    .map(|s| s.disable_auto_updates)
-    .unwrap_or(false);
-  if disabled {
-    log::info!("App auto-updates disabled by user setting");
-    return Ok(None);
-  }
-
-  let updater = AppAutoUpdater::instance();
-  updater
-    .check_for_updates()
-    .await
-    .map_err(|e| format!("Failed to check for app updates: {e}"))
+  log::info!("App auto-updates are disabled");
+  Ok(None)
 }
 
 #[tauri::command]
 pub async fn download_and_prepare_app_update(
-  app_handle: tauri::AppHandle,
-  update_info: AppUpdateInfo,
+  _app_handle: tauri::AppHandle,
+  _update_info: AppUpdateInfo,
 ) -> Result<(), String> {
-  let updater = AppAutoUpdater::instance();
-  updater
-    .download_and_prepare_update(&app_handle, &update_info)
-    .await
-    .map_err(|e| format!("Failed to download and prepare app update: {e}"))
+  Err("App auto-updates are disabled".to_string())
 }
 
 #[tauri::command]
 pub async fn restart_application() -> Result<(), String> {
-  let updater = AppAutoUpdater::instance();
-  updater
-    .restart_application()
-    .await
-    .map_err(|e| format!("Failed to restart application: {e}"))
+  Err("App auto-updates are disabled".to_string())
 }
 
 #[tauri::command]
 pub async fn check_for_app_updates_manual() -> Result<Option<AppUpdateInfo>, String> {
-  log::info!("Manual app update check triggered");
-  let updater = AppAutoUpdater::instance();
-  updater
-    .check_for_updates()
-    .await
-    .map_err(|e| format!("Failed to check for app updates: {e}"))
+  log::info!("App auto-updates are disabled");
+  Ok(None)
 }
 
 #[cfg(test)]

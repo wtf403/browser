@@ -51,8 +51,6 @@ pub struct AppSettings {
   pub window_resize_warning_dismissed: bool,
   #[serde(default)]
   pub onboarding_completed: bool, // First-launch onboarding has been shown/handled (one-shot)
-  #[serde(default)]
-  pub disable_auto_updates: bool,
   /// When true, the decrypted in-RAM copy of a password-protected profile is
   /// preserved between launches for faster subsequent startups. The on-disk
   /// copy is always re-encrypted regardless of this flag.
@@ -90,7 +88,6 @@ impl Default for AppSettings {
       language: None,
       window_resize_warning_dismissed: false,
       onboarding_completed: false,
-      disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
     }
   }
@@ -1141,7 +1138,6 @@ mod tests {
       language: None,
       window_resize_warning_dismissed: false,
       onboarding_completed: false,
-      disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
     };
 

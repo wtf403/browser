@@ -64,7 +64,6 @@ interface AppSettings {
   api_enabled: boolean;
   api_port: number;
   api_token?: string;
-  disable_auto_updates?: boolean;
   keep_decrypted_profiles_in_ram?: boolean;
 }
 
@@ -125,7 +124,6 @@ export function SettingsDialog({
     useState<PermissionType | null>(null);
   const [isMacOS, setIsMacOS] = useState(false);
   const [dnsBlocklistDialogOpen, setDnsBlocklistDialogOpen] = useState(false);
-  const [isLinux, setIsLinux] = useState(false);
   const [hasE2ePassword, setHasE2ePassword] = useState(false);
   const [e2ePassword, setE2ePassword] = useState("");
   const [e2ePasswordConfirm, setE2ePasswordConfirm] = useState("");
@@ -554,8 +552,6 @@ export function SettingsDialog({
       const userAgent = navigator.userAgent;
       const isMac = userAgent.includes("Mac");
       setIsMacOS(isMac);
-      const isLin = !userAgent.includes("Mac") && !userAgent.includes("Win");
-      setIsLinux(isLin);
 
       if (isMac) {
         loadPermissions();
@@ -619,8 +615,7 @@ export function SettingsDialog({
         JSON.stringify(originalSettings.custom_theme ?? {})) ||
     (settings.theme !== "custom" &&
       JSON.stringify(settings.custom_theme ?? {}) !==
-        JSON.stringify(originalSettings.custom_theme ?? {})) ||
-    settings.disable_auto_updates !== originalSettings.disable_auto_updates;
+        JSON.stringify(originalSettings.custom_theme ?? {}));
 
   return (
     <>
@@ -1147,29 +1142,6 @@ export function SettingsDialog({
               <Label className="text-base font-medium">
                 {t("settings.advanced.title")}
               </Label>
-
-              {!isLinux && (
-                <div className="flex items-start gap-x-3 p-3 rounded-lg border">
-                  <Checkbox
-                    id="disable-auto-updates"
-                    checked={settings.disable_auto_updates ?? false}
-                    onCheckedChange={(checked) => {
-                      updateSetting("disable_auto_updates", checked as boolean);
-                    }}
-                  />
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor="disable-auto-updates"
-                      className="text-sm font-medium"
-                    >
-                      {t("settings.disableAutoUpdates")}
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      {t("settings.disableAutoUpdatesDescription")}
-                    </p>
-                  </div>
-                </div>
-              )}
 
               <div className="flex items-start gap-x-3 p-3 rounded-lg border">
                 <Checkbox

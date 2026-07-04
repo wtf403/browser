@@ -183,8 +183,6 @@
       "copyLogsSuccess": "Đã sao chép nhật ký vào clipboard",
       "copyLogsDescription": "Đóng gói các file nhật ký gần nhất (tối đa 5 MB) vào clipboard để chia sẻ trong báo cáo lỗi."
     },
-    "disableAutoUpdates": "Tắt tự động cập nhật ứng dụng",
-    "disableAutoUpdatesDescription": "Ngăn ứng dụng tự động kiểm tra và cài đặt bản cập nhật Donut Browser. Cập nhật trình duyệt không bị ảnh hưởng.",
     "keepDecryptedProfilesInRam": "Giữ hồ sơ đã giải mã trong RAM",
     "keepDecryptedProfilesInRamDescription": "Giữ bản sao đã giải mã trong RAM của hồ sơ được bảo vệ bằng mật khẩu giữa các lần khởi chạy để khởi động nhanh hơn. Bản sao trên ổ đĩa vẫn được mã hóa."
   },
