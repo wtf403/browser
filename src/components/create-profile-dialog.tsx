@@ -12,6 +12,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
 import { LuCheck, LuChevronsUpDown, LuLoaderCircle } from "react-icons/lu";
+import { CloakConfigForm } from "@/components/cloak-config-form";
 import { LoadingButton } from "@/components/loading-button";
 import { ProxyFormDialog } from "@/components/proxy-form-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +55,12 @@ import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
 import { getBrowserIcon } from "@/lib/browser-utils";
 import { cn } from "@/lib/utils";
-import type { BrowserReleaseTypes, WayfernConfig, WayfernOS } from "@/types";
+import type {
+  BrowserReleaseTypes,
+  CloakConfig,
+  WayfernConfig,
+  WayfernOS,
+} from "@/types";
 
 const getCurrentOS = (): WayfernOS => {
   if (typeof navigator === "undefined") return "linux";
@@ -66,7 +72,7 @@ const getCurrentOS = (): WayfernOS => {
 
 import { RippleButton } from "./ui/ripple";
 
-type BrowserTypeString = "camoufox" | "wayfern";
+type BrowserTypeString = "camoufox" | "wayfern" | "cloak";
 
 interface CreateProfileDialogProps {
   isOpen: boolean;
@@ -79,6 +85,7 @@ interface CreateProfileDialogProps {
     proxyId?: string;
     vpnId?: string;
     wayfernConfig?: WayfernConfig;
+    cloakConfig?: CloakConfig;
     groupId?: string;
     extensionGroupId?: string;
     ephemeral?: boolean;
@@ -99,6 +106,10 @@ const browserOptions: BrowserOption[] = [
   {
     value: "wayfern",
     label: "Wayfern",
+  },
+  {
+    value: "cloak",
+    label: "CloakBrowser",
   },
 ];
 
@@ -132,6 +143,16 @@ export function CreateProfileDialog({
   const [wayfernConfig, setWayfernConfig] = useState<WayfernConfig>(() => ({
     os: getCurrentOS(), // Default to current OS
   }));
+
+  // CloakBrowser anti-detect states
+  const [cloakConfig, setCloakConfig] = useState<CloakConfig>({
+    geoip: true,
+    humanize: true,
+  });
+
+  const updateCloakConfig = (key: keyof CloakConfig, value: unknown) => {
+    setCloakConfig((prev) => ({ ...prev, [key]: value }));
+  };
 
   // Handle browser selection from the initial screen
   const handleBrowserSelect = (browser: BrowserTypeString) => {
@@ -400,24 +421,25 @@ export function CreateProfileDialog({
         : undefined;
     try {
       if (activeTab === "anti-detect") {
-        // Camoufox is deprecated — only Wayfern anti-detect profiles are created.
-        const bestWayfernVersion = getCreatableVersion("wayfern");
-        if (!bestWayfernVersion) {
-          console.error("No Wayfern version available");
+        // Camoufox is deprecated — only Wayfern and CloakBrowser anti-detect profiles are created.
+        const activeBrowser = selectedBrowser === "cloak" ? "cloak" : "wayfern";
+        const bestVersion = getCreatableVersion(activeBrowser);
+        if (!bestVersion) {
+          console.error(`No ${activeBrowser} version available`);
           return;
         }
 
-        // The fingerprint will be generated at launch time by the Rust backend
-        const finalWayfernConfig = { ...wayfernConfig };
-
         await onCreateProfile({
           name: profileName.trim(),
-          browserStr: "wayfern" as BrowserTypeString,
-          version: bestWayfernVersion.version,
-          releaseType: bestWayfernVersion.releaseType,
+          browserStr: activeBrowser as BrowserTypeString,
+          version: bestVersion.version,
+          releaseType: bestVersion.releaseType,
           proxyId: resolvedProxyId,
           vpnId: resolvedVpnId,
-          wayfernConfig: finalWayfernConfig,
+          wayfernConfig:
+            activeBrowser === "wayfern" ? { ...wayfernConfig } : undefined,
+          cloakConfig:
+            activeBrowser === "cloak" ? { ...cloakConfig } : undefined,
           groupId:
             selectedGroupId && selectedGroupId !== "__all__"
               ? selectedGroupId
@@ -657,6 +679,33 @@ export function CreateProfileDialog({
                     <TabsContent value="anti-detect" className="mt-0">
                       {/* Anti-Detect Configuration */}
                       <div className="space-y-6">
+                        {/* Engine selector */}
+                        <div className="space-y-2">
+                          <Label>
+                            {t("createProfile.browserEngine", "Browser Engine")}
+                          </Label>
+                          <div className="flex gap-2">
+                            {browserOptions.map((opt) => (
+                              <Button
+                                key={opt.value}
+                                variant={
+                                  selectedBrowser === opt.value
+                                    ? "default"
+                                    : "outline"
+                                }
+                                size="sm"
+                                onClick={() =>
+                                  setSelectedBrowser(
+                                    opt.value as BrowserTypeString,
+                                  )
+                                }
+                              >
+                                {opt.label}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+
                         {/* Profile Name */}
                         <div className="space-y-2">
                           <Label htmlFor="profile-name">
@@ -906,6 +955,50 @@ export function CreateProfileDialog({
                                 getCreatableVersion("wayfern")?.version
                               }
                               profileBrowser="wayfern"
+                            />
+                          </div>
+                        ) : selectedBrowser === "cloak" ? (
+                          // CloakBrowser Configuration
+                          <div className="space-y-6">
+                            {isLoadingReleaseTypes && (
+                              <div className="flex items-center gap-3 rounded-md border p-3">
+                                <div className="size-4 animate-spin rounded-full border-2 border-muted/40 border-t-primary" />
+                                <p className="text-sm text-muted-foreground">
+                                  {t("createProfile.version.fetching")}
+                                </p>
+                              </div>
+                            )}
+                            {!isLoadingReleaseTypes &&
+                              !isBrowserCurrentlyDownloading("cloak") &&
+                              !getCreatableVersion("cloak") &&
+                              getBestAvailableVersion("cloak") && (
+                                <div className="flex items-center gap-3">
+                                  <p className="flex-1 text-sm text-muted-foreground">
+                                    {t("createProfile.version.notDownloaded", {
+                                      browser: "CloakBrowser",
+                                    })}
+                                  </p>
+                                  <LoadingButton
+                                    isLoading={isBrowserDownloading("cloak")}
+                                    size="sm"
+                                    onClick={() => handleDownload("cloak")}
+                                  >
+                                    {t("createProfile.actions.download")}
+                                  </LoadingButton>
+                                </div>
+                              )}
+                            {isBrowserCurrentlyDownloading("cloak") && (
+                              <div className="rounded-md border p-3 text-sm text-muted-foreground">
+                                {t("createProfile.version.downloading", {
+                                  browser: "CloakBrowser",
+                                  version:
+                                    getBestAvailableVersion("cloak")?.version,
+                                })}
+                              </div>
+                            )}
+                            <CloakConfigForm
+                              config={cloakConfig}
+                              onConfigChange={updateCloakConfig}
                             />
                           </div>
                         ) : (

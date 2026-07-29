@@ -1,5 +1,6 @@
 use crate::browser::ProxySettings;
 use crate::camoufox_manager::{CamoufoxConfig, CamoufoxManager};
+use crate::cloak_manager::{CloakConfig, CloakManager};
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
 use crate::platform_browser;
@@ -17,6 +18,7 @@ pub struct BrowserRunner {
   auto_updater: &'static crate::auto_updater::AutoUpdater,
   camoufox_manager: &'static CamoufoxManager,
   wayfern_manager: &'static WayfernManager,
+  cloak_manager: &'static CloakManager,
 }
 
 impl BrowserRunner {
@@ -27,6 +29,7 @@ impl BrowserRunner {
       auto_updater: crate::auto_updater::AutoUpdater::instance(),
       camoufox_manager: CamoufoxManager::instance(),
       wayfern_manager: WayfernManager::instance(),
+      cloak_manager: CloakManager::instance(),
     }
   }
 
@@ -818,6 +821,229 @@ impl BrowserRunner {
       } else {
         log::info!(
           "Successfully emitted profile-running-changed event for Wayfern {}: running={}",
+          updated_profile.name,
+          payload.is_running
+        );
+      }
+
+      return Ok(updated_profile);
+    }
+
+    // Handle CloakBrowser profiles using CloakManager
+    if profile.browser == "cloak" {
+      let mut updated_profile = profile.clone();
+
+      // Get or create cloak config
+      let mut cloak_config = profile.cloak_config.clone().unwrap_or_else(|| {
+        log::info!(
+          "No cloak config found for profile {}, using default",
+          profile.name
+        );
+        CloakConfig::default()
+      });
+
+      // Always start a local proxy for Cloak (for traffic monitoring and geoip support)
+      let mut upstream_proxy = self
+        .resolve_launch_proxy(profile)
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
+      // If profile has a VPN instead of proxy, start VPN worker and use it as upstream
+      if upstream_proxy.is_none() {
+        if let Some(ref vpn_id) = profile.vpn_id {
+          match crate::vpn_worker_runner::start_vpn_worker(vpn_id).await {
+            Ok(vpn_worker) => {
+              if let Some(port) = vpn_worker.local_port {
+                upstream_proxy = Some(ProxySettings {
+                  proxy_type: "socks5".to_string(),
+                  host: "127.0.0.1".to_string(),
+                  port,
+                  username: None,
+                  password: None,
+                });
+                log::info!("VPN worker started for Cloak profile on port {}", port);
+              }
+            }
+            Err(e) => {
+              return Err(format!("Failed to start VPN worker: {e}").into());
+            }
+          }
+        }
+      }
+
+      log::info!(
+        "Starting local proxy for Cloak profile: {} (upstream: {})",
+        profile.name,
+        upstream_proxy
+          .as_ref()
+          .map(|p| format!("{}:{}", p.host, p.port))
+          .unwrap_or_else(|| "DIRECT".to_string())
+      );
+
+      // Start the proxy and get local proxy settings
+      let profile_id_str = profile.id.to_string();
+      let blocklist_file = Self::resolve_blocklist_file(profile).await?;
+      let local_proxy = PROXY_MANAGER
+        .start_proxy(
+          app_handle.clone(),
+          upstream_proxy.as_ref(),
+          0, // Use 0 as temporary PID, will be updated later
+          Some(&profile_id_str),
+          profile.proxy_bypass_rules.clone(),
+          blocklist_file,
+          "socks5", // CloakBrowser uses SOCKS5 like Wayfern
+        )
+        .await
+        .map_err(|e| {
+          let error_msg = format!("Failed to start local proxy for Cloak: {e}");
+          log::error!("{}", error_msg);
+          error_msg
+        })?;
+
+      // Format proxy URL for Cloak - use SOCKS5 for the local proxy
+      let proxy_url = format!("socks5://{}:{}", local_proxy.host, local_proxy.port);
+
+      // Set proxy in cloak config
+      cloak_config.proxy = Some(proxy_url.clone());
+
+      log::info!("Configured local proxy for Cloak: {}", proxy_url);
+
+      // Randomize fingerprint seed if requested
+      if cloak_config.randomize_fingerprint_on_launch == Some(true) {
+        let new_seed = rand::random::<u32>();
+        cloak_config.fingerprint_seed = Some(new_seed);
+        log::info!(
+          "Generated new fingerprint seed for Cloak profile: {}",
+          new_seed
+        );
+
+        // Persist the new seed
+        let mut updated_cloak_config = updated_profile.cloak_config.clone().unwrap_or_default();
+        updated_cloak_config.fingerprint_seed = Some(new_seed);
+        updated_cloak_config.randomize_fingerprint_on_launch = Some(true);
+        updated_profile.cloak_config = Some(updated_cloak_config.clone());
+      }
+
+      // Create ephemeral dir for ephemeral or password-protected profiles
+      if profile.password_protected {
+        crate::profile::password::prepare_for_launch(profile)
+          .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+      } else if profile.ephemeral {
+        crate::ephemeral_dirs::create_ephemeral_dir(&profile.id.to_string())
+          .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+      }
+
+      // Launch CloakBrowser
+      log::info!("Launching CloakBrowser for profile: {}", profile.name);
+
+      // Get profile path for Cloak
+      let profiles_dir = self.profile_manager.get_profiles_dir();
+      let profile_data_path =
+        crate::ephemeral_dirs::get_effective_profile_path(&updated_profile, &profiles_dir);
+      let profile_path_str = profile_data_path.to_string_lossy().to_string();
+
+      // Install extensions if an extension group is assigned
+      let mut extension_paths = Vec::new();
+      if updated_profile.extension_group_id.is_some() {
+        let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
+        match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
+          Ok(paths) => {
+            if !paths.is_empty() {
+              log::info!(
+                "Prepared {} Chromium extensions for profile: {}",
+                paths.len(),
+                updated_profile.name
+              );
+            }
+            extension_paths = paths;
+          }
+          Err(e) => {
+            log::warn!("Failed to install extensions for Cloak profile: {e}");
+          }
+        }
+      }
+
+      // Get proxy URL from config
+      let proxy_url_opt = cloak_config.proxy.as_deref();
+
+      let cloak_result = self
+        .cloak_manager
+        .launch_cloak(
+          &app_handle,
+          &updated_profile,
+          &profile_path_str,
+          &cloak_config,
+          url.as_deref(),
+          proxy_url_opt,
+          profile.ephemeral,
+          &extension_paths,
+          remote_debugging_port,
+          headless,
+        )
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+          format!("Failed to launch CloakBrowser: {e}").into()
+        })?;
+
+      // Get the process ID from launch result
+      let process_id = cloak_result.process_id.unwrap_or(0);
+      log::info!("CloakBrowser launched successfully with PID: {process_id}");
+
+      // Update profile with process info
+      updated_profile.process_id = Some(process_id);
+      updated_profile.last_launch = Some(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
+
+      // Update the proxy manager with the correct PID
+      if let Err(e) = PROXY_MANAGER.update_proxy_pid(0, process_id) {
+        log::warn!("Warning: Failed to update proxy PID mapping: {e}");
+      } else {
+        log::info!("Updated proxy PID mapping from temp (0) to actual PID: {process_id}");
+      }
+
+      // Persist the real browser PID
+      PROXY_MANAGER.set_browser_pid_for_profile(&updated_profile.id.to_string(), process_id);
+
+      // Save the updated profile
+      log::info!("Saving profile {} with cloak config", updated_profile.name);
+      self.save_process_info(&updated_profile)?;
+
+      // Ensure tag suggestions include any tags from this profile
+      let _ = crate::tag_manager::TAG_MANAGER.lock().map(|tm| {
+        let _ = tm.rebuild_from_profiles(&self.profile_manager.list_profiles().unwrap_or_default());
+      });
+
+      // Emit profiles-changed to trigger frontend reload
+      if let Err(e) = events::emit_empty("profiles-changed") {
+        log::warn!("Warning: Failed to emit profiles-changed event: {e}");
+      }
+
+      log::info!(
+        "Emitting profile events for successful Cloak launch: {}",
+        updated_profile.name
+      );
+
+      // Emit profile update event to frontend
+      if let Err(e) = events::emit("profile-updated", &updated_profile) {
+        log::warn!("Warning: Failed to emit profile update event: {e}");
+      }
+
+      // Emit minimal running changed event to frontend
+      #[derive(Serialize)]
+      struct RunningChangedPayload {
+        id: String,
+        is_running: bool,
+      }
+
+      let payload = RunningChangedPayload {
+        id: updated_profile.id.to_string(),
+        is_running: updated_profile.process_id.is_some(),
+      };
+
+      if let Err(e) = events::emit("profile-running-changed", &payload) {
+        log::warn!("Warning: Failed to emit profile running changed event: {e}");
+      } else {
+        log::info!(
+          "Successfully emitted profile-running-changed event for Cloak {}: running={}",
           updated_profile.name,
           payload.is_running
         );

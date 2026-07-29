@@ -188,6 +188,48 @@ impl Downloader {
 
         Ok(download_url)
       }
+      BrowserType::Cloak => {
+        // CloakBrowser uses GitHub releases
+        let releases: Vec<crate::browser::GithubRelease> = self
+          .api_client
+          .fetch_cloak_releases_with_caching(true)
+          .await?;
+
+        let release = releases
+          .iter()
+          .find(|r| r.tag_name == version)
+          .or_else(|| {
+            log::info!(
+              "CloakBrowser: requested version {version} not found, using latest available"
+            );
+            releases.first()
+          })
+          .ok_or("No CloakBrowser releases found".to_string())?;
+
+        let (os, arch) = Self::get_platform_info();
+
+        // CloakBrowser asset naming: cloakbrowser-{os}-{arch}.{ext}
+        let (os_name, arch_name, ext) = match (os.as_str(), arch.as_str()) {
+          ("windows", "x64") => ("windows", "x64", "zip"),
+          ("linux", "x64") => ("linux", "x64", "tar.gz"),
+          ("linux", "arm64") => ("linux", "arm64", "tar.gz"),
+          ("macos", "x64") => ("darwin", "x64", "tar.gz"),
+          ("macos", "arm64") => ("darwin", "arm64", "tar.gz"),
+          _ => return Err(format!("Unsupported platform for CloakBrowser: {os}/{arch}").into()),
+        };
+
+        let pattern = format!("cloakbrowser-{os_name}-{arch_name}.{ext}");
+        let asset_url = release
+          .assets
+          .iter()
+          .find(|a| a.name == pattern)
+          .map(|a| a.browser_download_url.clone())
+          .ok_or(format!(
+            "No compatible asset found for CloakBrowser version {version} on {os}/{arch}"
+          ))?;
+
+        Ok(asset_url)
+      }
     }
   }
 

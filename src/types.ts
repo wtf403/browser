@@ -11,6 +11,14 @@ export interface TableSortingSettings {
   direction: string; // "asc" or "desc"
 }
 
+export interface CloakConfig {
+  fingerprint_seed?: number;
+  randomize_fingerprint_on_launch?: boolean;
+  geoip?: boolean;
+  humanize?: boolean;
+  os?: string;
+}
+
 export interface BrowserProfile {
   id: string; // UUID of the profile
   name: string;
@@ -24,6 +32,7 @@ export interface BrowserProfile {
   release_type: string; // "stable" or "nightly"
   camoufox_config?: CamoufoxConfig; // Camoufox configuration
   wayfern_config?: WayfernConfig; // Wayfern configuration
+  cloak_config?: CloakConfig; // CloakBrowser configuration
   group_id?: string; // Reference to profile group
   tags?: string[];
   note?: string; // User note

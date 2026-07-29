@@ -15,6 +15,7 @@ pub struct ProxySettings {
 pub enum BrowserType {
   Camoufox,
   Wayfern,
+  Cloak,
 }
 
 impl BrowserType {
@@ -22,6 +23,7 @@ impl BrowserType {
     match self {
       BrowserType::Camoufox => "camoufox",
       BrowserType::Wayfern => "wayfern",
+      BrowserType::Cloak => "cloak",
     }
   }
 
@@ -29,6 +31,7 @@ impl BrowserType {
     match s {
       "camoufox" => Ok(BrowserType::Camoufox),
       "wayfern" => Ok(BrowserType::Wayfern),
+      "cloak" => Ok(BrowserType::Cloak),
       _ => Err(format!("Unknown browser type: {s}")),
     }
   }
@@ -298,6 +301,12 @@ mod linux {
         install_dir.join("wayfern").join("chrome"),
         install_dir.join("chrome-linux").join("chrome"),
       ],
+      BrowserType::Cloak => vec![
+        install_dir.join("cloakbrowser"),
+        install_dir.join("CloakBrowser"),
+        install_dir.join("chromium"),
+        install_dir.join("chrome"),
+      ],
       _ => vec![],
     };
 
@@ -352,6 +361,12 @@ mod linux {
         install_dir.join("wayfern").join("chromium"),
         install_dir.join("wayfern").join("chrome"),
         install_dir.join("chrome-linux").join("chrome"),
+      ],
+      BrowserType::Cloak => vec![
+        install_dir.join("cloakbrowser"),
+        install_dir.join("CloakBrowser"),
+        install_dir.join("chromium"),
+        install_dir.join("chrome"),
       ],
       _ => vec![],
     };
@@ -443,6 +458,12 @@ mod windows {
         install_dir.join("wayfern").join("chrome.exe"),
         install_dir.join("chrome-win").join("chrome.exe"),
       ],
+      BrowserType::Cloak => vec![
+        install_dir.join("cloakbrowser.exe"),
+        install_dir.join("CloakBrowser.exe"),
+        install_dir.join("chromium.exe"),
+        install_dir.join("chrome.exe"),
+      ],
       _ => vec![],
     };
 
@@ -462,7 +483,11 @@ mod windows {
             .unwrap_or_default()
             .to_string_lossy()
             .to_lowercase();
-          if name.contains("chromium") || name.contains("chrome") || name.contains("wayfern") {
+          if name.contains("chromium")
+            || name.contains("chrome")
+            || name.contains("wayfern")
+            || name.contains("cloak")
+          {
             return Ok(path);
           }
         }
@@ -520,6 +545,12 @@ mod windows {
         install_dir.join("wayfern").join("chrome.exe"),
         install_dir.join("chrome-win").join("chrome.exe"),
       ],
+      BrowserType::Cloak => vec![
+        install_dir.join("cloakbrowser.exe"),
+        install_dir.join("CloakBrowser.exe"),
+        install_dir.join("chromium.exe"),
+        install_dir.join("chrome.exe"),
+      ],
       _ => vec![],
     };
 
@@ -540,7 +571,11 @@ mod windows {
             .unwrap_or_default()
             .to_string_lossy()
             .to_lowercase();
-          if name.contains("chromium") || name.contains("chrome") || name.contains("wayfern") {
+          if name.contains("chromium")
+            || name.contains("chrome")
+            || name.contains("wayfern")
+            || name.contains("cloak")
+          {
             return true;
           }
         }
@@ -752,6 +787,127 @@ impl Browser for WayfernBrowser {
   }
 }
 
+/// CloakBrowser is a Chromium-based stealth browser that passes bot detection
+pub struct CloakBrowser;
+
+impl CloakBrowser {
+  pub fn new() -> Self {
+    Self
+  }
+}
+
+#[allow(clippy::needless_return)]
+impl Browser for CloakBrowser {
+  fn get_executable_path(&self, install_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    {
+      let candidates = [
+        install_dir.join("cloakbrowser"),
+        install_dir.join("CloakBrowser"),
+        install_dir.join("Cloakbrowser"),
+      ];
+      for path in &candidates {
+        if path.exists() {
+          return Ok(path.clone());
+        }
+      }
+      return Err(
+        format!(
+          "CloakBrowser executable not found in {}",
+          install_dir.display()
+        )
+        .into(),
+      );
+    }
+
+    #[cfg(target_os = "linux")]
+    return linux::get_chromium_executable_path(install_dir, &BrowserType::Cloak);
+
+    #[cfg(target_os = "windows")]
+    return windows::get_chromium_executable_path(install_dir, &BrowserType::Cloak);
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    Err("Unsupported platform".into())
+  }
+
+  fn create_launch_args(
+    &self,
+    profile_path: &str,
+    proxy_settings: Option<&ProxySettings>,
+    url: Option<String>,
+    remote_debugging_port: Option<u16>,
+    headless: bool,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut args = vec![
+      format!("--user-data-dir={}", profile_path),
+      "--no-default-browser-check".to_string(),
+      "--no-first-run".to_string(),
+      "--use-mock-keychain".to_string(),
+      "--password-store=basic".to_string(),
+    ];
+
+    if let Some(port) = remote_debugging_port {
+      args.push("--remote-debugging-address=127.0.0.1".to_string());
+      args.push(format!("--remote-debugging-port={port}"));
+    }
+
+    if headless {
+      args.push("--headless=new".to_string());
+      args.push("--disable-gpu".to_string());
+    }
+
+    if let Some(proxy) = proxy_settings {
+      args.push(format!(
+        "--proxy-server={}://{}:{}",
+        proxy.proxy_type, proxy.host, proxy.port
+      ));
+    }
+
+    if let Some(url) = url {
+      args.push(url);
+    }
+
+    Ok(args)
+  }
+
+  fn is_version_downloaded(&self, version: &str, binaries_dir: &Path) -> bool {
+    let install_dir = binaries_dir.join("cloak").join(version);
+
+    #[cfg(target_os = "macos")]
+    {
+      let candidates = [
+        install_dir.join("cloakbrowser"),
+        install_dir.join("CloakBrowser"),
+        install_dir.join("Cloakbrowser"),
+      ];
+      return candidates.iter().any(|p| p.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    return linux::is_chromium_version_downloaded(&install_dir, &BrowserType::Cloak);
+
+    #[cfg(target_os = "windows")]
+    return windows::is_chromium_version_downloaded(&install_dir, &BrowserType::Cloak);
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    false
+  }
+
+  fn prepare_executable(&self, executable_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    return macos::prepare_executable(executable_path);
+
+    #[cfg(target_os = "linux")]
+    return linux::prepare_executable(executable_path);
+
+    #[cfg(target_os = "windows")]
+    return windows::prepare_executable(executable_path);
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    Err("Unsupported platform".into())
+  }
+}
+
 pub struct BrowserFactory;
 
 impl BrowserFactory {
@@ -767,6 +923,7 @@ impl BrowserFactory {
     match browser_type {
       BrowserType::Camoufox => Box::new(CamoufoxBrowser::new()),
       BrowserType::Wayfern => Box::new(WayfernBrowser::new()),
+      BrowserType::Cloak => Box::new(CloakBrowser::new()),
     }
   }
 }
@@ -1205,6 +1362,7 @@ mod tests {
       release_type: "stable".to_string(),
       camoufox_config: None,
       wayfern_config: None,
+      cloak_config: None,
       group_id: None,
       tags: Vec::new(),
       note: None,

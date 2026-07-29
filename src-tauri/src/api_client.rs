@@ -1090,6 +1090,33 @@ impl ApiClient {
     Ok(compatible_releases)
   }
 
+  pub async fn fetch_cloak_releases_with_caching(
+    &self,
+    no_caching: bool,
+  ) -> Result<Vec<GithubRelease>, Box<dyn std::error::Error + Send + Sync>> {
+    if !no_caching {
+      if let Some(cached) = self.load_cached_github_releases("cloak") {
+        return Ok(cached);
+      }
+    }
+
+    let base_url = format!(
+      "{}/repos/CloakHQ/CloakBrowser/releases",
+      self.github_api_base
+    );
+    let mut releases: Vec<GithubRelease> =
+      self.fetch_github_releases_multiple_pages(&base_url).await?;
+    sort_github_releases(&mut releases);
+
+    if !no_caching {
+      if let Err(e) = self.save_cached_github_releases("cloak", &releases) {
+        log::error!("Failed to cache CloakBrowser releases: {e}");
+      }
+    }
+
+    Ok(releases)
+  }
+
   fn load_cached_wayfern_version(&self) -> Option<WayfernVersionInfo> {
     let cache_dir = Self::get_cache_dir().ok()?;
     let cache_file = cache_dir.join("wayfern_version.json");

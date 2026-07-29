@@ -24,6 +24,7 @@ mod browser_runner;
 mod browser_version_manager;
 pub mod camoufox;
 mod camoufox_manager;
+mod cloak_manager;
 mod default_browser;
 pub mod dns_blocklist;
 mod downloaded_browsers_registry;
@@ -66,9 +67,9 @@ use browser_runner::{
 
 use profile::manager::{
   check_browser_status, clone_profile, create_browser_profile_new, delete_profile,
-  list_browser_profiles, rename_profile, update_camoufox_config, update_profile_dns_blocklist,
-  update_profile_launch_hook, update_profile_note, update_profile_proxy,
-  update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
+  list_browser_profiles, rename_profile, update_camoufox_config, update_cloak_config,
+  update_profile_dns_blocklist, update_profile_launch_hook, update_profile_note,
+  update_profile_proxy, update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
   update_wayfern_config,
 };
 
@@ -1160,6 +1161,7 @@ async fn generate_sample_fingerprint(
     release_type: "stable".to_string(),
     camoufox_config: None,
     wayfern_config: None,
+    cloak_config: None,
     group_id: None,
     tags: Vec::new(),
     note: None,
@@ -2217,6 +2219,7 @@ pub fn run() {
       parse_txt_proxies,
       import_proxies_from_parsed,
       update_camoufox_config,
+      update_cloak_config,
       update_wayfern_config,
       generate_sample_fingerprint,
       get_profile_groups,

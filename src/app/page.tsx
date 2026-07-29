@@ -79,7 +79,7 @@ import type {
   WayfernConfig,
 } from "@/types";
 
-type BrowserTypeString = "camoufox" | "wayfern";
+type BrowserTypeString = "camoufox" | "wayfern" | "cloak";
 
 interface PendingUrl {
   id: string;
