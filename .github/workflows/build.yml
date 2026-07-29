@@ -1,11 +1,9 @@
-name: Fork Build Test
+name: Build
 
 on:
   push:
     branches:
-      - merge-upstream-opensource
       - main
-  pull_request:
   workflow_dispatch:
 
 permissions:
