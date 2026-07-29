@@ -52,7 +52,20 @@ pub async fn fetch_public_ip(proxy: Option<&str>) -> Result<String, IpError> {
   let client_builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5));
 
   let client = if let Some(proxy_url) = proxy {
-    let proxy = reqwest::Proxy::all(proxy_url)
+    // Convert socks5:// to socks5h:// so the proxy does remote DNS
+    // (sends the hostname instead of the resolved IP). This matches
+    // curl --socks5-hostname and the proxy worker's own reqwest client
+    // (build_reqwest_client_with_proxy does the same conversion).
+    let proxy_url = if let Some(rest) = proxy_url.strip_prefix("socks5://") {
+      // Only convert if there's no auth — if credentials contain literal
+      // "socks5://" as part of the password we'd corrupt them, but that's
+      // unrealistic and the strip_prefix is exact so it only matches the
+      // real scheme prefix.
+      format!("socks5h://{rest}")
+    } else {
+      proxy_url.to_string()
+    };
+    let proxy = reqwest::Proxy::all(&proxy_url)
       .map_err(|e| IpError::Network(format!("Invalid proxy: {}", e)))?;
     client_builder
       .no_proxy()

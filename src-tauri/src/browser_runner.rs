@@ -1,6 +1,5 @@
 use crate::browser::ProxySettings;
 use crate::camoufox_manager::{CamoufoxConfig, CamoufoxManager};
-use crate::cloud_auth::CLOUD_AUTH;
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::events;
 use crate::platform_browser;
@@ -73,7 +72,6 @@ impl BrowserRunner {
 
     if PROXY_MANAGER.is_cloud_or_derived(proxy_id) {
       log::info!("Refreshing cloud proxy credentials before launch for proxy {proxy_id}");
-      CLOUD_AUTH.sync_cloud_proxy().await;
     }
     // For cloud-derived proxies, inject profile-specific sid for sticky sessions
     if let Some(pid) = profile_id {
@@ -2386,9 +2384,6 @@ pub async fn launch_browser_profile_impl(
     ));
   }
 
-  // Team lock check: if profile is sync-enabled and user is on a team, acquire lock
-  crate::team_lock::acquire_team_lock_if_needed(&profile).await?;
-
   // Notify sync scheduler that profile is now running and queue sync for when it stops
   if let Some(scheduler) = crate::sync::get_global_scheduler() {
     let pid = profile.id.to_string();
@@ -2524,9 +2519,6 @@ pub async fn kill_browser_profile(
         profile.name,
         profile.id
       );
-
-      // Release team lock if applicable
-      crate::team_lock::release_team_lock_if_needed(&profile).await;
 
       // Notify sync scheduler that profile stopped (sync was queued at launch)
       if let Some(scheduler) = crate::sync::get_global_scheduler() {

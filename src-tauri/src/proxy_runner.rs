@@ -392,6 +392,30 @@ pub async fn start_proxy_process_with_profile(
   }
 }
 
+/// Wait for the proxy worker to be ready to accept connections on the given port.
+/// Polls with a TCP connect every 50ms up to `timeout`.
+pub async fn wait_for_proxy_ready(
+  port: u16,
+  timeout: std::time::Duration,
+) -> Result<(), Box<dyn std::error::Error + Send>> {
+  let start = std::time::Instant::now();
+  let mut last_err;
+  loop {
+    match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+      Ok(_) => return Ok(()),
+      Err(e) => {
+        last_err = e.to_string();
+        if start.elapsed() >= timeout {
+          let msg =
+            format!("Proxy worker not ready on 127.0.0.1:{port} after {timeout:?}: {last_err}");
+          return Err(Box::new(std::io::Error::other(msg)));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+      }
+    }
+  }
+}
+
 pub async fn stop_proxy_process(id: &str) -> Result<bool, Box<dyn std::error::Error>> {
   let config = get_proxy_config(id);
 

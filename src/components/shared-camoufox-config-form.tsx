@@ -9,7 +9,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ProBadge } from "@/components/ui/pro-badge";
 import {
   Select,
   SelectContent,
@@ -285,7 +284,6 @@ export function SharedCamoufoxConfigForm({
                 <SelectItem key={os} value={os} disabled={isDisabled}>
                   <span className="flex items-center gap-2">
                     {osLabels[os]}
-                    {isDisabled && <ProBadge />}
                   </span>
                 </SelectItem>
               );
@@ -1145,7 +1143,6 @@ export function SharedCamoufoxConfigForm({
             <div className="absolute inset-x-0 bottom-0 z-2 h-6 bg-linear-to-t from-background to-transparent" />
             <div className="absolute inset-0 z-3 flex items-center justify-center">
               <div className="flex items-center gap-2 rounded-md bg-background/80 px-3 py-1.5">
-                <ProBadge />
                 <span className="text-sm font-medium text-muted-foreground">
                   {t("fingerprint.proFeature")}
                 </span>
@@ -1200,7 +1197,6 @@ export function SharedCamoufoxConfigForm({
                       <SelectItem key={os} value={os} disabled={isDisabled}>
                         <span className="flex items-center gap-2">
                           {osLabels[os]}
-                          {isDisabled && <ProBadge />}
                         </span>
                       </SelectItem>
                     );
@@ -1361,7 +1357,6 @@ export function SharedCamoufoxConfigForm({
                   <div className="absolute inset-x-0 bottom-0 z-2 h-6 bg-linear-to-t from-background to-transparent" />
                   <div className="absolute inset-0 z-3 flex items-center justify-center">
                     <div className="flex items-center gap-2 rounded-md bg-background/80 px-3 py-1.5">
-                      <ProBadge />
                       <span className="text-sm font-medium text-muted-foreground">
                         {t("fingerprint.proFeature")}
                       </span>

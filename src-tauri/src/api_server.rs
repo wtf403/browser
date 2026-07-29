@@ -472,7 +472,6 @@ impl ApiServer {
       .routes(routes!(download_browser_api))
       .routes(routes!(get_browser_versions))
       .routes(routes!(check_browser_downloaded))
-      .routes(routes!(get_wayfern_token, refresh_wayfern_token))
       .split_for_parts();
 
     let api = ApiDoc::openapi();
@@ -641,8 +640,7 @@ async fn rate_limit_middleware(
   request: axum::extract::Request,
   next: Next,
 ) -> Result<Response, StatusCode> {
-  let _requests_per_hour = crate::cloud_auth::CLOUD_AUTH.requests_per_hour().await;
-  // TODO(rate-limit): enforce `_requests_per_hour` for automation routes.
+  // Rate limiting not enforced in open source version
   Ok(next.run(request).await)
 }
 
@@ -1055,14 +1053,6 @@ async fn update_profile(
   }
 
   if let Some(camoufox_config) = request.camoufox_config {
-    // Editing a profile's fingerprint config is part of the cross-OS fingerprint
-    // capability (GUI, API, MCP). Viewing it is free; mutating it is not.
-    if !crate::cloud_auth::CLOUD_AUTH
-      .can_use_cross_os_fingerprints()
-      .await
-    {
-      return Err(StatusCode::PAYMENT_REQUIRED);
-    }
     let config: Result<CamoufoxConfig, _> = serde_json::from_value(camoufox_config);
     match config {
       Ok(config) => {
@@ -1880,13 +1870,6 @@ async fn run_profile(
   State(state): State<ApiServerState>,
   Json(request): Json<RunProfileRequest>,
 ) -> Result<Json<RunProfileResponse>, StatusCode> {
-  if !crate::cloud_auth::CLOUD_AUTH
-    .can_use_browser_automation()
-    .await
-  {
-    return Err(StatusCode::PAYMENT_REQUIRED);
-  }
-
   let headless = request.headless.unwrap_or(false);
   let url = request.url;
 
@@ -1903,11 +1886,6 @@ async fn run_profile(
   if profile.is_cross_os() {
     return Err(StatusCode::BAD_REQUEST);
   }
-
-  // Team lock check
-  crate::team_lock::acquire_team_lock_if_needed(profile)
-    .await
-    .map_err(|_| StatusCode::CONFLICT)?;
 
   let remote_debugging_port = {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1966,13 +1944,6 @@ async fn open_url_in_profile(
   State(state): State<ApiServerState>,
   Json(request): Json<OpenUrlRequest>,
 ) -> Result<StatusCode, StatusCode> {
-  if !crate::cloud_auth::CLOUD_AUTH
-    .can_use_browser_automation()
-    .await
-  {
-    return Err(StatusCode::PAYMENT_REQUIRED);
-  }
-
   let browser_runner = crate::browser_runner::BrowserRunner::instance();
 
   browser_runner
@@ -2006,15 +1977,6 @@ async fn kill_profile(
   Path(id): Path<String>,
   State(state): State<ApiServerState>,
 ) -> Result<StatusCode, StatusCode> {
-  // Programmatically launching and stopping profiles is a paid feature; the
-  // run/open-url handlers gate the same way.
-  if !crate::cloud_auth::CLOUD_AUTH
-    .can_use_browser_automation()
-    .await
-  {
-    return Err(StatusCode::PAYMENT_REQUIRED);
-  }
-
   let profile_manager = ProfileManager::instance();
   let profiles = profile_manager
     .list_profiles()
@@ -2030,8 +1992,6 @@ async fn kill_profile(
     .kill_browser_process(state.app_handle.clone(), profile)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-  crate::team_lock::release_team_lock_if_needed(profile).await;
 
   Ok(StatusCode::NO_CONTENT)
 }
@@ -2058,13 +2018,6 @@ async fn batch_run_profiles(
   State(state): State<ApiServerState>,
   Json(request): Json<BatchRunRequest>,
 ) -> Result<Json<BatchRunResponse>, StatusCode> {
-  if !crate::cloud_auth::CLOUD_AUTH
-    .can_use_browser_automation()
-    .await
-  {
-    return Err(StatusCode::PAYMENT_REQUIRED);
-  }
-
   let headless = request.headless.unwrap_or(false);
   let profile_manager = ProfileManager::instance();
   let profiles = profile_manager
@@ -2086,13 +2039,6 @@ async fn batch_run_profiles(
     };
     if profile.is_cross_os() {
       results.push(fail("cross-OS profiles cannot be launched"));
-      continue;
-    }
-    if crate::team_lock::acquire_team_lock_if_needed(profile)
-      .await
-      .is_err()
-    {
-      results.push(fail("profile is locked by another team member"));
       continue;
     }
 
@@ -2153,13 +2099,6 @@ async fn batch_stop_profiles(
   State(state): State<ApiServerState>,
   Json(request): Json<BatchStopRequest>,
 ) -> Result<Json<BatchStopResponse>, StatusCode> {
-  if !crate::cloud_auth::CLOUD_AUTH
-    .can_use_browser_automation()
-    .await
-  {
-    return Err(StatusCode::PAYMENT_REQUIRED);
-  }
-
   let profile_manager = ProfileManager::instance();
   let profiles = profile_manager
     .list_profiles()
@@ -2182,7 +2121,6 @@ async fn batch_stop_profiles(
       .await
     {
       Ok(_) => {
-        crate::team_lock::release_team_lock_if_needed(profile).await;
         results.push(BatchStopResult {
           profile_id: profile_id.clone(),
           ok: true,
@@ -2362,57 +2300,6 @@ async fn check_browser_downloaded(
 ) -> Result<Json<bool>, StatusCode> {
   let is_downloaded = crate::downloaded_browsers_registry::is_browser_downloaded(browser, version);
   Ok(Json(is_downloaded))
-}
-
-// API Handlers - Wayfern Token
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct WayfernTokenResponse {
-  pub token: Option<String>,
-}
-
-#[utoipa::path(
-  get,
-  path = "/v1/wayfern-token",
-  responses(
-    (status = 200, description = "Current wayfern token", body = WayfernTokenResponse),
-    (status = 401, description = "Unauthorized"),
-  ),
-  security(
-    ("bearer_auth" = [])
-  ),
-  tag = "wayfern"
-)]
-async fn get_wayfern_token(
-  State(_state): State<ApiServerState>,
-) -> Result<Json<WayfernTokenResponse>, StatusCode> {
-  let token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-  Ok(Json(WayfernTokenResponse { token }))
-}
-
-#[utoipa::path(
-  post,
-  path = "/v1/wayfern-token/refresh",
-  responses(
-    (status = 200, description = "Refreshed wayfern token", body = WayfernTokenResponse),
-    (status = 401, description = "Unauthorized"),
-    (status = 500, description = "Failed to refresh token"),
-  ),
-  security(
-    ("bearer_auth" = [])
-  ),
-  tag = "wayfern"
-)]
-async fn refresh_wayfern_token(
-  State(_state): State<ApiServerState>,
-) -> Result<Json<WayfernTokenResponse>, (StatusCode, String)> {
-  crate::cloud_auth::CLOUD_AUTH
-    .request_wayfern_token()
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-  let token = crate::cloud_auth::CLOUD_AUTH.get_wayfern_token().await;
-  Ok(Json(WayfernTokenResponse { token }))
 }
 
 #[cfg(test)]

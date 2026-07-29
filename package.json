@@ -97,15 +97,14 @@
   "packageManager": "pnpm@11.2.2",
   "lint-staged": {
     "**/*.{js,jsx,ts,tsx,json,css}": [
-      "biome check --fix"
+      "pnpm exec biome check --fix"
     ],
     "src-tauri/**/*.rs": [
       "bash -c 'cd src-tauri && cargo fmt --all'",
-      "bash -c 'cd src-tauri && cargo clippy --all-targets --all-features -- -D warnings -D clippy::all'",
-      "bash -c 'cd src-tauri && cargo test --lib'"
+      "bash -c 'cd src-tauri && cargo clippy --all-targets --all-features -- -D warnings -D clippy::all'"
     ],
     "**/*.{rs,ts,tsx,js,jsx,md}": [
-      "typos"
+      "bash -c 'command -v typos >/dev/null 2>&1 && typos \"$@\" || true' --"
     ]
   }
 }

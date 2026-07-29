@@ -33,7 +33,6 @@ pub enum SyncWorkItem {
 /// fresh one (tokens are short-lived, ~15 min).
 #[derive(Clone, Copy)]
 enum TokenSource {
-  Cloud,
   SelfHosted,
 }
 
@@ -67,20 +66,7 @@ impl SyncSubscription {
     app_handle: &tauri::AppHandle,
     work_tx: mpsc::UnboundedSender<SyncWorkItem>,
   ) -> Result<Option<Self>, String> {
-    // Cloud auth takes priority
-    if crate::cloud_auth::CLOUD_AUTH.is_logged_in().await {
-      let url = crate::cloud_auth::CLOUD_SYNC_URL.to_string();
-      let token = crate::cloud_auth::CLOUD_AUTH
-        .get_or_refresh_sync_token()
-        .await
-        .map_err(|e| format!("Failed to get cloud sync token: {e}"))?;
-      let Some(token) = token else {
-        return Ok(None);
-      };
-      return Ok(Some(Self::new(url, token, TokenSource::Cloud, work_tx)));
-    }
-
-    // Fall back to self-hosted settings
+    // Use self-hosted settings
     let manager = SettingsManager::instance();
     let settings = manager
       .load_settings()
@@ -171,10 +157,6 @@ impl SyncSubscription {
     app_handle: &tauri::AppHandle,
   ) -> Result<Option<String>, String> {
     match source {
-      TokenSource::Cloud => crate::cloud_auth::CLOUD_AUTH
-        .get_or_refresh_sync_token()
-        .await
-        .map_err(|e| format!("Failed to refresh cloud sync token: {e}")),
       TokenSource::SelfHosted => SettingsManager::instance()
         .get_sync_token(app_handle)
         .await

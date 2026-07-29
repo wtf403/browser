@@ -108,6 +108,7 @@ impl VersionComponent {
     (version, None)
   }
 
+  #[allow(clippy::question_mark)]
   fn parse_pre_release(pre_release: &str) -> Option<PreRelease> {
     let pre_release = pre_release.trim().to_lowercase();
 
