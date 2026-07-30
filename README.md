@@ -1,1 +1,0 @@
-# Antidetect browser profile automator
