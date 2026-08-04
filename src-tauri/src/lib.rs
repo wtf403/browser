@@ -16,7 +16,6 @@ static QUIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
 
 mod api_client;
 mod api_server;
-mod app_auto_updater;
 pub mod app_dirs;
 mod auto_updater;
 mod browser;
@@ -67,9 +66,9 @@ use browser_runner::{
 
 use profile::manager::{
   check_browser_status, clone_profile, create_browser_profile_new, delete_profile,
-  list_browser_profiles, rename_profile, update_camoufox_config, update_cloak_config,
-  update_profile_dns_blocklist, update_profile_launch_hook, update_profile_note,
-  update_profile_proxy, update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
+  list_browser_profiles, rename_profile, update_camoufox_config, update_profile_dns_blocklist,
+  update_profile_launch_hook, update_profile_note, update_profile_proxy,
+  update_profile_proxy_bypass_rules, update_profile_tags, update_profile_vpn,
   update_wayfern_config,
 };
 
@@ -118,11 +117,6 @@ use version_updater::{
 
 use auto_updater::{
   check_for_browser_updates, complete_browser_update_with_auto_update, dismiss_update_notification,
-};
-
-use app_auto_updater::{
-  check_for_app_updates, check_for_app_updates_manual, download_and_prepare_app_update,
-  restart_application,
 };
 
 use profile_importer::{detect_existing_profiles, import_browser_profile};
@@ -1787,35 +1781,6 @@ pub fn run() {
         }
       });
 
-      tauri::async_runtime::spawn(async move {
-        let updater = app_auto_updater::AppAutoUpdater::instance();
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3 * 60 * 60));
-
-        loop {
-          interval.tick().await;
-
-          log::info!("Checking for app updates...");
-          match updater.check_for_updates().await {
-            Ok(Some(update_info)) => {
-              log::info!(
-                "App update available: {} -> {}",
-                update_info.current_version,
-                update_info.new_version
-              );
-              if let Err(e) = events::emit("app-update-available", &update_info) {
-                log::error!("Failed to emit app update event: {e}");
-              }
-            }
-            Ok(None) => {
-              log::debug!("No app updates available");
-            }
-            Err(e) => {
-              log::error!("Failed to check for app updates: {e}");
-            }
-          }
-        }
-      });
-
       // Start Camoufox cleanup task
       let _app_handle_cleanup = app.handle().clone();
       tauri::async_runtime::spawn(async move {
@@ -2198,10 +2163,6 @@ pub fn run() {
       check_for_browser_updates,
       dismiss_update_notification,
       complete_browser_update_with_auto_update,
-      check_for_app_updates,
-      check_for_app_updates_manual,
-      download_and_prepare_app_update,
-      restart_application,
       detect_existing_profiles,
       import_browser_profile,
       check_missing_binaries,
@@ -2219,7 +2180,6 @@ pub fn run() {
       parse_txt_proxies,
       import_proxies_from_parsed,
       update_camoufox_config,
-      update_cloak_config,
       update_wayfern_config,
       generate_sample_fingerprint,
       get_profile_groups,

@@ -194,8 +194,6 @@
       "copyLogsSuccess": "로그가 클립보드에 복사되었습니다",
       "copyLogsDescription": "최신 로그 파일(최대 5MB)을 클립보드에 묶어 버그 보고서에서 공유할 수 있도록 합니다."
     },
-    "disableAutoUpdates": "앱 자동 업데이트 사용 안 함",
-    "disableAutoUpdatesDescription": "Donut Browser 업데이트를 앱이 자동으로 확인하고 설치하지 않도록 합니다. 브라우저 업데이트는 영향을 받지 않습니다.",
     "keepDecryptedProfilesInRam": "복호화된 프로필을 RAM에 유지",
     "keepDecryptedProfilesInRamDescription": "비밀번호로 보호된 프로필의 복호화된 RAM 사본을 실행 사이에 유지하여 시작 속도를 높입니다. 디스크의 사본은 그대로 암호화된 상태로 유지됩니다."
   },
@@ -1717,16 +1715,8 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Donut Browser 업데이트 실패",
-      "restartFailed": "재시작 실패",
-      "updateReady": "업데이트 준비됨, 적용하려면 재시작하세요",
-      "manualDownloadRequired": "수동 다운로드 필요",
-      "restartNow": "지금 재시작",
-      "viewRelease": "릴리스 보기",
-      "later": "나중에",
       "uploading": "업로드 중",
-      "downloading": "다운로드 중",
-      "startingUpdate": "업데이트를 시작하는 중..."
+      "downloading": "다운로드 중"
     }
   },
   "browserDownload": {

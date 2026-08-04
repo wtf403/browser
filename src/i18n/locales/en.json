@@ -194,8 +194,6 @@
       "copyLogsSuccess": "Logs copied to clipboard",
       "copyLogsDescription": "Bundles the most recent log files (up to 5 MB) into your clipboard for sharing in bug reports."
     },
-    "disableAutoUpdates": "Disable App Auto Updates",
-    "disableAutoUpdatesDescription": "Prevent the app from automatically checking and installing Donut Browser updates. Browser updates are not affected.",
     "keepDecryptedProfilesInRam": "Keep Decrypted Profiles In RAM",
     "keepDecryptedProfilesInRamDescription": "Preserve the decrypted in-RAM copy of password-protected profiles between launches for faster startup. The on-disk copy stays encrypted regardless."
   },
@@ -1717,16 +1715,8 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Failed to update Donut Browser",
-      "restartFailed": "Failed to restart",
-      "updateReady": "Update ready, restart to apply",
-      "manualDownloadRequired": "Manual download required",
-      "restartNow": "Restart Now",
-      "viewRelease": "View Release",
-      "later": "Later",
       "uploading": "Uploading",
-      "downloading": "Downloading",
-      "startingUpdate": "Starting update..."
+      "downloading": "Downloading"
     }
   },
   "browserDownload": {

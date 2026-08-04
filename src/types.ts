@@ -211,26 +211,6 @@ export interface BrowserReleaseTypes {
   nightly?: string;
 }
 
-export interface AppUpdateInfo {
-  current_version: string;
-  new_version: string;
-  release_notes: string;
-  download_url: string;
-  is_nightly: boolean;
-  published_at: string;
-  manual_update_required: boolean;
-  release_page_url?: string;
-  repo_update: boolean;
-}
-
-export interface AppUpdateProgress {
-  stage: string; // "downloading", "extracting", "installing", "completed"
-  percentage?: number;
-  speed?: string; // MB/s
-  eta?: string; // estimated time remaining
-  message: string;
-}
-
 export type CamoufoxOS = "windows" | "macos" | "linux";
 
 export interface CamoufoxConfig {

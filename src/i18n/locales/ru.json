@@ -194,8 +194,6 @@
       "copyLogsSuccess": "Логи скопированы в буфер обмена",
       "copyLogsDescription": "Собирает последние файлы логов (до 5 МБ) в буфер обмена для прикрепления к багам."
     },
-    "disableAutoUpdates": "Отключить автообновление приложения",
-    "disableAutoUpdatesDescription": "Запретить автоматическую проверку и установку обновлений Donut Browser. Обновления браузеров не затрагиваются.",
     "keepDecryptedProfilesInRam": "Хранить расшифрованные профили в ОЗУ",
     "keepDecryptedProfilesInRamDescription": "Сохранять расшифрованную копию защищённых паролем профилей в ОЗУ между запусками для ускорения старта. Копия на диске в любом случае остаётся зашифрованной."
   },
@@ -1717,16 +1715,8 @@
   },
   "appUpdate": {
     "toast": {
-      "updateFailed": "Не удалось обновить Donut Browser",
-      "restartFailed": "Не удалось перезапустить",
-      "updateReady": "Обновление готово, перезапустите для применения",
-      "manualDownloadRequired": "Требуется ручная загрузка",
-      "restartNow": "Перезапустить сейчас",
-      "viewRelease": "Посмотреть релиз",
-      "later": "Позже",
       "uploading": "Загрузка",
-      "downloading": "Скачивание",
-      "startingUpdate": "Запуск обновления..."
+      "downloading": "Скачивание"
     }
   },
   "browserDownload": {

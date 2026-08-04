@@ -55,8 +55,6 @@ pub struct AppSettings {
   pub window_resize_warning_dismissed: bool,
   #[serde(default)]
   pub onboarding_completed: bool, // First-launch onboarding has been shown/handled (one-shot)
-  #[serde(default)]
-  pub disable_auto_updates: bool,
   /// When true, the decrypted in-RAM copy of a password-protected profile is
   /// preserved between launches for faster subsequent startups. The on-disk
   /// copy is always re-encrypted regardless of this flag.
@@ -96,7 +94,6 @@ impl Default for AppSettings {
       language: None,
       window_resize_warning_dismissed: false,
       onboarding_completed: false,
-      disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
     }
   }
@@ -1056,7 +1053,7 @@ pub fn get_system_info() -> SystemInfo {
   };
 
   SystemInfo {
-    app_version: crate::app_auto_updater::AppAutoUpdater::get_current_version(),
+    app_version: env!("BUILD_VERSION").to_string(),
     os: os.to_string(),
     arch: arch.to_string(),
     portable: crate::app_dirs::is_portable(),
@@ -1151,7 +1148,6 @@ mod tests {
       language: None,
       window_resize_warning_dismissed: false,
       onboarding_completed: false,
-      disable_auto_updates: false,
       keep_decrypted_profiles_in_ram: false,
     };
 

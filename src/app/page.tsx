@@ -43,7 +43,6 @@ import { ThankYouDialog } from "@/components/thank-you-dialog";
 import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
 import { WindowResizeWarningDialog } from "@/components/window-resize-warning-dialog";
-import { useAppUpdateNotifications } from "@/hooks/use-app-update-notifications";
 import { useGroupEvents } from "@/hooks/use-group-events";
 import type { PermissionType } from "@/hooks/use-permissions";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -601,8 +600,6 @@ export default function Home() {
   // Auto-update functionality - use the existing hook for compatibility
   const updateNotifications = useUpdateNotifications();
   const { checkForUpdates, isUpdating } = updateNotifications;
-
-  useAppUpdateNotifications();
 
   // Check for startup URLs but only process them once
   const [hasCheckedStartupUrl, setHasCheckedStartupUrl] = useState(false);

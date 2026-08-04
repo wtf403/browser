@@ -1174,63 +1174,6 @@ impl ProfileManager {
     Ok(())
   }
 
-  pub async fn update_cloak_config(
-    &self,
-    app_handle: tauri::AppHandle,
-    profile_id: &str,
-    config: CloakConfig,
-  ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let profile_uuid = uuid::Uuid::parse_str(profile_id).map_err(
-      |_| -> Box<dyn std::error::Error + Send + Sync> {
-        format!("Invalid profile ID: {profile_id}").into()
-      },
-    )?;
-    let profiles =
-      self
-        .list_profiles()
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-          format!("Failed to list profiles: {e}").into()
-        })?;
-    let mut profile = profiles
-      .into_iter()
-      .find(|p| p.id == profile_uuid)
-      .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-        format!("Profile with ID '{profile_id}' not found").into()
-      })?;
-
-    let is_running = self
-      .check_browser_status(app_handle.clone(), &profile)
-      .await?;
-
-    if is_running {
-      return Err(
-        "Cannot update CloakBrowser configuration while browser is running. Please stop the browser first.".into(),
-      );
-    }
-
-    profile.cloak_config = Some(config);
-
-    self
-      .save_profile(&profile)
-      .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-        format!("Failed to save profile: {e}").into()
-      })?;
-
-    crate::sync::queue_profile_sync_if_eligible(&profile);
-
-    log::info!(
-      "CloakBrowser configuration updated for profile '{}' (ID: {}).",
-      profile.name,
-      profile_id
-    );
-
-    if let Err(e) = events::emit_empty("profiles-changed") {
-      log::warn!("Warning: Failed to emit profiles-changed event: {e}");
-    }
-
-    Ok(())
-  }
-
   pub async fn update_wayfern_config(
     &self,
     app_handle: tauri::AppHandle,
@@ -2585,19 +2528,6 @@ pub async fn update_camoufox_config(
     .update_camoufox_config(app_handle, &profile_id, config)
     .await
     .map_err(|e| format!("Failed to update Camoufox config: {e}"))
-}
-
-#[tauri::command]
-pub async fn update_cloak_config(
-  app_handle: tauri::AppHandle,
-  profile_id: String,
-  config: CloakConfig,
-) -> Result<(), String> {
-  let profile_manager = ProfileManager::instance();
-  profile_manager
-    .update_cloak_config(app_handle, &profile_id, config)
-    .await
-    .map_err(|e| format!("Failed to update CloakBrowser config: {e}"))
 }
 
 #[tauri::command]
