@@ -27,7 +27,8 @@ export type AppPage =
   | "integrations"
   | "account"
   | "import"
-  | "shortcuts";
+  | "shortcuts"
+  | "ephemeral";
 
 const CLICK_THRESHOLD = 5;
 const CLICK_WINDOW_MS = 2000;
