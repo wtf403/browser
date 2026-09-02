@@ -1,10 +1,19 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      os:
+        description: 'Operating System to build for'
+        required: true
+        type: choice
+        options:
+          - all
+          - macos-aarch64
+          - macos-x86_64
+          - linux-x86_64
+          - windows-x86_64
+        default: 'all'
 
 permissions:
   contents: write
@@ -18,16 +27,21 @@ jobs:
           - platform: "macos-latest"
             args: "--target aarch64-apple-darwin"
             target: "aarch64-apple-darwin"
+            build_name: "macos-aarch64"
           - platform: "macos-latest"
             args: "--target x86_64-apple-darwin"
             target: "x86_64-apple-darwin"
+            build_name: "macos-x86_64"
           - platform: "ubuntu-22.04"
             args: "--target x86_64-unknown-linux-gnu"
             target: "x86_64-unknown-linux-gnu"
+            build_name: "linux-x86_64"
           - platform: "windows-latest"
             args: "--target x86_64-pc-windows-msvc"
             target: "x86_64-pc-windows-msvc"
-
+            build_name: "windows-x86_64"
+    
+    if: ${{ inputs.os == 'all' || inputs.os == matrix.build_name }}
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
