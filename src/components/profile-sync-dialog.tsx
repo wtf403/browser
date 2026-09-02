@@ -92,10 +92,11 @@ export function ProfileSyncDialog({
         return;
       }
 
-      if (newMode === "Encrypted" && !canUseEncryption) {
-        showErrorToast(t("settings.encryption.requiresProOrOwner"));
-        return;
-      }
+      // Encryption is now free for everyone - remove the check
+      // if (newMode === "Encrypted" && !canUseEncryption) {
+      //   showErrorToast(t("settings.encryption.requiresProOrOwner"));
+      //   return;
+      // }
 
       if (newMode === "Encrypted" && !hasE2ePassword) {
         showErrorToast(t("sync.mode.passwordRequired"));
@@ -227,23 +228,17 @@ export function ProfileSyncDialog({
                       <RadioGroupItem
                         value="Encrypted"
                         id="sync-encrypted"
-                        disabled={!canUseEncryption}
+                        disabled={false}
                       />
                       <Label
                         htmlFor="sync-encrypted"
-                        className={
-                          canUseEncryption
-                            ? "cursor-pointer"
-                            : "cursor-not-allowed opacity-50"
-                        }
+                        className="cursor-pointer"
                       >
                         <span className="font-medium">
                           {t("sync.mode.encrypted")}
                         </span>
                         <p className="text-sm text-muted-foreground">
-                          {canUseEncryption
-                            ? t("sync.mode.encryptedDescription")
-                            : t("settings.encryption.requiresProOrOwner")}
+                          {t("sync.mode.encryptedDescription")}
                         </p>
                       </Label>
                     </div>

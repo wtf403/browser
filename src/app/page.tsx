@@ -15,6 +15,7 @@ import { CookieCopyDialog } from "@/components/cookie-copy-dialog";
 import { CookieManagementDialog } from "@/components/cookie-management-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
+import { EphemeralPage } from "@/components/ephemeral-page";
 import { ExtensionGroupAssignmentDialog } from "@/components/extension-group-assignment-dialog";
 import { ExtensionManagementDialog } from "@/components/extension-management-dialog";
 import { GroupAssignmentDialog } from "@/components/group-assignment-dialog";
@@ -217,7 +218,7 @@ export default function Home() {
   const crossOsUnlocked = true;
   const automationUnlocked = true;
 
-  const [selfHostedSyncConfigured, setSelfHostedSyncConfigured] =
+  const [_selfHostedSyncConfigured, setSelfHostedSyncConfigured] =
     useState(false);
 
   const checkSelfHostedSync = useCallback(async () => {
@@ -232,7 +233,8 @@ export default function Home() {
     }
   }, []);
 
-  const syncUnlocked = selfHostedSyncConfigured;
+  // All sync features are free - always unlocked
+  const syncUnlocked = true;
 
   const [currentPage, setCurrentPage] = useState<AppPage>("profiles");
   // Tracks which tab inside the shared proxy-management page should be active.
@@ -1680,6 +1682,8 @@ export default function Home() {
           {currentPage === "shortcuts" && (
             <ShortcutsPage groupTargets={orderedGroupTargets} />
           )}
+
+          {currentPage === "ephemeral" && <EphemeralPage />}
 
           {settingsDialogOpen && (
             <SettingsDialog

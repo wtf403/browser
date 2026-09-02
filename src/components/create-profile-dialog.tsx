@@ -950,7 +950,7 @@ export function CreateProfileDialog({
                               onConfigChange={updateWayfernConfig}
                               isCreating
                               crossOsUnlocked={crossOsUnlocked}
-                              limitedMode={!crossOsUnlocked}
+                              limitedMode={false}
                               profileVersion={
                                 getCreatableVersion("wayfern")?.version
                               }

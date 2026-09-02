@@ -596,7 +596,7 @@ export function ImportProfileDialog({
                 }}
                 isCreating={true}
                 crossOsUnlocked={crossOsUnlocked}
-                limitedMode={!crossOsUnlocked}
+                limitedMode={false}
               />
             </div>
           )}

@@ -989,11 +989,7 @@ export function SettingsDialog({
                 {t("settings.encryption.description")}
               </p>
 
-              {!canUseEncryption ? (
-                <p className="text-sm text-muted-foreground">
-                  {t("settings.encryption.requiresProOrOwner")}
-                </p>
-              ) : hasE2ePassword ? (
+              {hasE2ePassword ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Badge variant="default">

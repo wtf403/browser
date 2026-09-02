@@ -19,7 +19,6 @@ import {
   LuGroup,
   LuKey,
   LuLink,
-  LuLock,
   LuLockOpen,
   LuPlus,
   LuPuzzle,
@@ -205,7 +204,6 @@ export function ProfileInfoDialog({
   onSetPassword,
   onChangePassword,
   onRemovePassword,
-  crossOsUnlocked = false,
   isRunning = false,
   isDisabled = false,
   isCrossOs = false,
@@ -358,9 +356,9 @@ export function ProfileInfoDialog({
       onClick: () => {
         handleAction(() => onConfigureCamoufox?.(profile));
       },
-      // Viewing and editing fingerprints both require an active paid plan.
-      disabled: isDisabled || !crossOsUnlocked,
-      proBadge: !crossOsUnlocked,
+      // Fingerprint editing is now free for everyone
+      disabled: isDisabled,
+      proBadge: false,
       runningBadge: isRunning,
       hidden: !isCamoufoxOrWayfern || !onConfigureCamoufox,
     },
@@ -370,8 +368,8 @@ export function ProfileInfoDialog({
       onClick: () => {
         handleAction(() => onLaunchWithSync?.(profile));
       },
-      disabled: isDisabled || isRunning || !crossOsUnlocked,
-      proBadge: !crossOsUnlocked,
+      disabled: isDisabled || isRunning,
+      proBadge: false,
       hidden: profile.browser !== "wayfern" || !onLaunchWithSync,
     },
     {
@@ -922,13 +920,11 @@ function ProfileInfoLayout({
             <FingerprintSectionInline
               profile={profile}
               isDisabled={isDisabled}
-              crossOsUnlocked={Boolean(
-                // Re-derive: parent passes crossOsUnlocked but the layout
-                // doesn't get it; we get it implicitly via fingerprintAction's
-                // proBadge state. Default to false if action missing.
-                fingerprintAction && !fingerprintAction.proBadge,
-              )}
-              onSaved={onClose}
+              crossOsUnlocked={true}
+              onSaved={() => {
+                // Reload the profile to reflect the saved fingerprint config
+                // The parent dialog will handle this via its onClose or refresh mechanism
+              }}
               t={t}
             />
           )}
@@ -1744,22 +1740,9 @@ function FingerprintSectionInline({
     );
   }
 
-  // Viewing and editing fingerprints both require an active paid plan
-  // (`crossOsUnlocked` is that paid flag here). Render a locked state instead of
-  // the editor so free users can neither see nor change the fingerprint.
-  if (!crossOsUnlocked) {
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center">
-        <LuLock className="size-4 shrink-0 text-muted-foreground" />
-        <h3 className="text-sm font-medium text-foreground">
-          {t("profileInfo.fingerprint.lockedTitle")}
-        </h3>
-        <p className="max-w-[48ch] text-sm text-pretty text-muted-foreground">
-          {t("profileInfo.fingerprint.lockedDescription")}
-        </p>
-      </div>
-    );
-  }
+  // Fingerprints are now free for everyone - remove the locked state check
+  // const isCamoufox = profile.browser === "camoufox";
+  // const isWayfern = profile.browser === "wayfern";
 
   const onCamoufoxChange = (key: keyof CamoufoxConfig, value: unknown) => {
     setCamoufoxConfig((prev) => ({ ...prev, [key]: value }));
@@ -1834,6 +1817,7 @@ function FingerprintSectionInline({
           forceAdvanced={true}
           readOnly={isDisabled}
           crossOsUnlocked={crossOsUnlocked}
+          limitedMode={false}
           profileVersion={profile.version}
           profileBrowser={profile.browser}
         />
