@@ -41,45 +41,62 @@ jobs:
             target: "x86_64-pc-windows-msvc"
             build_name: "windows-x86_64"
     
-    if: ${{ inputs.os == 'all' || inputs.os == matrix.build_name }}
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Check if build should run
+        id: should_run
+        run: |
+          if [[ "${{ inputs.os }}" == "all" ]] || [[ "${{ inputs.os }}" == "${{ matrix.build_name }}" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
       - uses: actions/checkout@v4
+        if: steps.should_run.outputs.run == 'true'
 
       - name: Setup pnpm
+        if: steps.should_run.outputs.run == 'true'
         uses: pnpm/action-setup@v4
         with:
           run_install: false
 
       - name: Setup Node.js
+        if: steps.should_run.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: "pnpm"
 
       - name: Setup Rust
+        if: steps.should_run.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: steps.should_run.outputs.run == 'true' && matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev pkg-config xdg-utils
 
       - name: Rust cache
+        if: steps.should_run.outputs.run == 'true'
         uses: swatinem/rust-cache@v2
         with:
           workdir: ./src-tauri
 
       - name: Install frontend dependencies
+        if: steps.should_run.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend
+        if: steps.should_run.outputs.run == 'true'
         run: pnpm exec next build
 
       - name: Verify frontend dist exists
+        if: steps.should_run.outputs.run == 'true'
         shell: bash
         run: |
           if [ ! -f "dist/index.html" ]; then
@@ -90,12 +107,14 @@ jobs:
           echo "Frontend dist verified"
 
       - name: Build sidecar binaries
+        if: steps.should_run.outputs.run == 'true'
         shell: bash
         working-directory: ./src-tauri
         run: |
           cargo build --bin donut-proxy --target ${{ matrix.target }} --release
 
       - name: Copy sidecar binaries to Tauri binaries
+        if: steps.should_run.outputs.run == 'true'
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
@@ -107,12 +126,14 @@ jobs:
           fi
 
       - name: Build Tauri app
+        if: steps.should_run.outputs.run == 'true'
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: ./src-tauri
           args: ${{ matrix.args }}
 
       - name: Upload artifacts
+        if: steps.should_run.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.platform }}-${{ matrix.target }}
