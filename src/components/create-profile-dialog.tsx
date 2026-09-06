@@ -312,9 +312,10 @@ export function CreateProfileDialog({
   useEffect(() => {
     if (isOpen) {
       void loadSupportedBrowsers();
-      // Load downloaded Wayfern versions up front so the availability gate is
-      // accurate. Camoufox is deprecated and no longer creatable.
+      // Load downloaded versions up front so the availability gate is
+      // accurate for both creatable engines.
       void loadDownloadedVersions("wayfern");
+      void loadDownloadedVersions("cloak");
       // Load release types when a browser is selected
       if (selectedBrowser) {
         void loadReleaseTypes(selectedBrowser);
@@ -360,10 +361,10 @@ export function CreateProfileDialog({
   const getCreatableVersion = useCallback(
     (browserType?: string) => {
       const bestVersion = getBestAvailableVersion(browserType);
-      if (bestVersion && isVersionDownloaded(bestVersion.version)) {
+      const browserDownloaded = downloadedVersionsMap[browserType ?? ""] ?? [];
+      if (bestVersion && browserDownloaded.includes(bestVersion.version)) {
         return bestVersion;
       }
-      const browserDownloaded = downloadedVersionsMap[browserType ?? ""] ?? [];
       if (browserDownloaded.length > 0) {
         const fallbackVersion = browserDownloaded[0];
         return {
@@ -373,7 +374,7 @@ export function CreateProfileDialog({
       }
       return null;
     },
-    [getBestAvailableVersion, isVersionDownloaded, downloadedVersionsMap],
+    [getBestAvailableVersion, downloadedVersionsMap],
   );
 
   const handleDownload = async (browserStr: string) => {
@@ -423,10 +424,28 @@ export function CreateProfileDialog({
       if (activeTab === "anti-detect") {
         // Camoufox is deprecated — only Wayfern and CloakBrowser anti-detect profiles are created.
         const activeBrowser = selectedBrowser === "cloak" ? "cloak" : "wayfern";
-        const bestVersion = getCreatableVersion(activeBrowser);
+        let bestVersion = getCreatableVersion(activeBrowser);
         if (!bestVersion) {
-          console.error(`No ${activeBrowser} version available`);
-          return;
+          // Auto-install like Wayfern first-run setup: download the best
+          // available version on demand instead of leaving Create disabled.
+          const toDownload = getBestAvailableVersion(activeBrowser);
+          if (!toDownload) {
+            console.error(`No ${activeBrowser} version available`);
+            return;
+          }
+          try {
+            await downloadBrowser(activeBrowser, toDownload.version);
+          } catch (e) {
+            console.error(`Failed to auto-install ${activeBrowser}:`, e);
+            return;
+          }
+          bestVersion = getCreatableVersion(activeBrowser) ?? toDownload;
+          if (!bestVersion) {
+            console.error(
+              `No ${activeBrowser} version available after download`,
+            );
+            return;
+          }
         }
 
         await onCreateProfile({
@@ -539,7 +558,12 @@ export function CreateProfileDialog({
     if (!profileName.trim()) return true;
     if (!selectedBrowser) return true;
     if (isBrowserCurrentlyDownloading(selectedBrowser)) return true;
-    if (!getCreatableVersion(selectedBrowser)) return true;
+    if (isCreating) return true;
+    // Allow Create when a best version exists even if not yet downloaded —
+    // handleCreate auto-installs it on demand.
+    if (!getBestAvailableVersion(selectedBrowser)) {
+      if (!getCreatableVersion(selectedBrowser)) return true;
+    }
 
     return false;
   }, [
@@ -547,6 +571,8 @@ export function CreateProfileDialog({
     selectedBrowser,
     isBrowserCurrentlyDownloading,
     getCreatableVersion,
+    getBestAvailableVersion,
+    isCreating,
   ]);
 
   // Filter supported browsers for regular browsers

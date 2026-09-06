@@ -144,6 +144,61 @@ impl WayfernManager {
     fingerprint
   }
 
+  /// Randomize the spoofed `fonts` list in-place so each launch exposes a
+  /// different subset. Handles both shapes: JSON-encoded string (CDP form)
+  /// and plain array (storage form). Keeps [60%, 100%] of entries (min 10).
+  fn randomize_fonts_subset(fingerprint: &mut serde_json::Value) {
+    use rand::RngExt;
+    let obj = match fingerprint.as_object_mut() {
+      Some(o) => o,
+      None => return,
+    };
+    // Decode to Vec<String> regardless of shape.
+    let mut list: Vec<String> = match obj.get("fonts") {
+      Some(serde_json::Value::String(s)) => serde_json::from_str::<serde_json::Value>(s)
+        .ok()
+        .and_then(|v| {
+          v.as_array().map(|a| {
+            a.iter()
+              .filter_map(|e| e.as_str().map(String::from))
+              .collect()
+          })
+        })
+        .unwrap_or_default(),
+      Some(serde_json::Value::Array(a)) => a
+        .iter()
+        .filter_map(|e| e.as_str().map(String::from))
+        .collect(),
+      _ => return,
+    };
+    if list.len() < 2 {
+      return;
+    }
+    let is_string_shape = matches!(obj.get("fonts"), Some(serde_json::Value::String(_)));
+    let mut rng = rand::rng();
+    for i in (1..list.len()).rev() {
+      let j = rng.random_range(0..=i);
+      list.swap(i, j);
+    }
+    let min = (list.len() * 6 / 10).max(10.min(list.len()));
+    let n = if list.len() > min {
+      rng.random_range(min..=list.len())
+    } else {
+      list.len()
+    };
+    list.truncate(n);
+    list.sort();
+    if is_string_shape {
+      obj.insert(
+        "fonts".to_string(),
+        serde_json::Value::String(serde_json::to_string(&list).unwrap_or_default()),
+      );
+    } else {
+      obj.insert("fonts".to_string(), serde_json::json!(list));
+    }
+    log::info!("Randomized Wayfern fonts subset: {} fonts", list.len());
+  }
+
   /// Derive the on-screen window size Chromium should open at, from the stored
   /// fingerprint. `Wayfern.setFingerprint` only spoofs what the page *reports*
   /// for `windowOuterWidth`/`screenWidth`/etc.; it does not move or resize the
@@ -847,6 +902,7 @@ impl WayfernManager {
       }
 
       // Denormalize fingerprint for Wayfern CDP (convert arrays/objects to JSON strings)
+      Self::randomize_fonts_subset(&mut fingerprint);
       let mut fingerprint_for_cdp = Self::denormalize_fingerprint(fingerprint);
 
       // Normalize languages: if it's a comma-separated string, convert to array

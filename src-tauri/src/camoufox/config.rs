@@ -383,20 +383,18 @@ impl CamoufoxConfigBuilder {
     // user navigation anyway, so a constant spoof is detectable and not
     // worth the broken navigation UX.
 
-    // Add fonts
+    // Add fonts: expose a random subset each launch so the font
+    // fingerprint changes without touching real OS fonts.
     if !self.custom_fonts_only {
       let system_fonts = fonts::get_fonts_for_os(target_os);
-      let fonts = if let Some(custom) = &self.custom_fonts {
-        let mut all_fonts = system_fonts;
-        for font in custom {
-          if !all_fonts.contains(font) {
-            all_fonts.push(font.clone());
-          }
+      let mut all_fonts = system_fonts;
+      let custom = self.custom_fonts.clone().unwrap_or_default();
+      for font in &custom {
+        if !all_fonts.contains(font) {
+          all_fonts.push(font.clone());
         }
-        all_fonts
-      } else {
-        system_fonts
-      };
+      }
+      let fonts = fonts::random_font_subset(all_fonts, &custom);
       config.insert("fonts".to_string(), serde_json::json!(fonts));
     } else if let Some(custom) = &self.custom_fonts {
       config.insert("fonts".to_string(), serde_json::json!(custom));
