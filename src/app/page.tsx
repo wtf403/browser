@@ -813,6 +813,8 @@ export default function Home() {
       wayfernConfig?: WayfernConfig;
       groupId?: string;
       extensionGroupId?: string;
+      extensionIds?: string[];
+      randomExtension?: boolean;
       ephemeral?: boolean;
       dnsBlocklist?: string;
       launchHook?: string;
@@ -838,6 +840,9 @@ export default function Home() {
             ephemeral: profileData.ephemeral,
             dnsBlocklist: profileData.dnsBlocklist,
             launchHook: profileData.launchHook,
+            extensionGroupId: profileData.extensionGroupId,
+            extensionIds: profileData.extensionIds,
+            randomExtension: profileData.randomExtension,
           },
         );
 

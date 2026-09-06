@@ -88,6 +88,8 @@ interface CreateProfileDialogProps {
     cloakConfig?: CloakConfig;
     groupId?: string;
     extensionGroupId?: string;
+    extensionIds?: string[];
+    randomExtension?: boolean;
     ephemeral?: boolean;
     dnsBlocklist?: string;
     launchHook?: string;
@@ -195,6 +197,13 @@ export function CreateProfileDialog({
   const [extensionGroups, setExtensionGroups] = useState<
     { id: string; name: string; extension_ids: string[] }[]
   >([]);
+  const [allExtensions, setAllExtensions] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [selectedExtensionIds, setSelectedExtensionIds] = useState<string[]>(
+    [],
+  );
+  const [randomExtension, setRandomExtension] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -204,6 +213,11 @@ export function CreateProfileDialog({
         .then(setExtensionGroups)
         .catch(() => {
           setExtensionGroups([]);
+        });
+      void invoke<{ id: string; name: string }[]>("list_extensions")
+        .then(setAllExtensions)
+        .catch(() => {
+          setAllExtensions([]);
         });
     }
   }, [isOpen]);
@@ -464,6 +478,8 @@ export function CreateProfileDialog({
               ? selectedGroupId
               : undefined,
           extensionGroupId: selectedExtensionGroupId,
+          extensionIds: selectedExtensionIds,
+          randomExtension,
           ephemeral,
           dnsBlocklist: dnsBlocklist || undefined,
           launchHook: launchHook.trim() || undefined,
@@ -526,6 +542,9 @@ export function CreateProfileDialog({
       os: getCurrentOS(), // Reset to current OS
     });
     setEphemeral(false);
+    setSelectedExtensionGroupId(undefined);
+    setSelectedExtensionIds([]);
+    setRandomExtension(false);
     setEnablePassword(false);
     setPassword("");
     setPasswordConfirm("");
@@ -1337,10 +1356,60 @@ export function CreateProfileDialog({
                           </Select>
                         </div>
 
-                        {/* Extension Group */}
-                        {extensionGroups.length > 0 && (
-                          <div className="space-y-2">
+                        {/* Extension Group + per-extension checkboxes + random */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
                             <Label>{t("extensions.extensionGroup")}</Label>
+                            <div className="flex gap-2">
+                              <RippleButton
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  if (allExtensions.length === 0) return;
+                                  const idx = Math.floor(
+                                    Math.random() * allExtensions.length,
+                                  );
+                                  const pick = allExtensions[idx];
+                                  setSelectedExtensionIds((prev) =>
+                                    prev.includes(pick.id)
+                                      ? prev
+                                      : [...prev, pick.id],
+                                  );
+                                }}
+                              >
+                                {t("common.buttons.random")}
+                              </RippleButton>
+                              <RippleButton
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  void invoke("import_canary_extensions").then(
+                                    () => {
+                                      void invoke<
+                                        {
+                                          id: string;
+                                          name: string;
+                                          extension_ids: string[];
+                                        }[]
+                                      >("list_extension_groups").then(
+                                        setExtensionGroups,
+                                      );
+                                      void invoke<
+                                        { id: string; name: string }[]
+                                      >("list_extensions").then(
+                                        setAllExtensions,
+                                      );
+                                    },
+                                  );
+                                }}
+                              >
+                                {t("extensions.importCanary")}
+                              </RippleButton>
+                            </div>
+                          </div>
+                          {extensionGroups.length > 0 && (
                             <Select
                               value={selectedExtensionGroupId ?? "none"}
                               onValueChange={(val) => {
@@ -1365,8 +1434,47 @@ export function CreateProfileDialog({
                                 ))}
                               </SelectContent>
                             </Select>
+                          )}
+                          {allExtensions.length > 0 && (
+                            <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
+                              {allExtensions.map((ext) => (
+                                <div
+                                  key={ext.id}
+                                  className="flex items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    id={`ext-${ext.id}`}
+                                    checked={selectedExtensionIds.includes(
+                                      ext.id,
+                                    )}
+                                    onCheckedChange={(checked) => {
+                                      setSelectedExtensionIds((prev) =>
+                                        checked === true
+                                          ? [...prev, ext.id]
+                                          : prev.filter((id) => id !== ext.id),
+                                      );
+                                    }}
+                                  />
+                                  <Label htmlFor={`ext-${ext.id}`}>
+                                    {ext.name}
+                                  </Label>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              id="random-extension"
+                              checked={randomExtension}
+                              onCheckedChange={(checked) => {
+                                setRandomExtension(checked === true);
+                              }}
+                            />
+                            <Label htmlFor="random-extension">
+                              {t("extensions.randomEphemeral")}
+                            </Label>
                           </div>
-                        )}
+                        </div>
                       </div>
                     </TabsContent>
 

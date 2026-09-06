@@ -34,7 +34,8 @@
       "saving": "Сохраняем…",
       "saved": "Сохранено",
       "copied": "Скопировано",
-      "learnMore": "Подробнее"
+      "learnMore": "Подробнее",
+      "random": "Random"
     },
     "status": {
       "active": "Активен",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "Удалить группы расширений",
       "groupsDescription": "Удалить {{count}} групп расширений? {{names}}",
       "confirmButton": "Удалить"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

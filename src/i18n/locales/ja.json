@@ -34,7 +34,8 @@
       "saving": "保存中…",
       "saved": "保存しました",
       "copied": "コピーしました",
-      "learnMore": "詳細"
+      "learnMore": "詳細",
+      "random": "Random"
     },
     "status": {
       "active": "アクティブ",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "拡張機能グループを削除",
       "groupsDescription": "{{count}}件の拡張機能グループを削除しますか？ {{names}}",
       "confirmButton": "削除"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

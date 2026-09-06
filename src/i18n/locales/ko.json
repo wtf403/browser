@@ -34,7 +34,8 @@
       "saving": "저장 중…",
       "saved": "저장됨",
       "copied": "복사됨",
-      "learnMore": "자세히 알아보기"
+      "learnMore": "자세히 알아보기",
+      "random": "Random"
     },
     "status": {
       "active": "활성",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "확장 프로그램 그룹 삭제",
       "groupsDescription": "{{count}}개의 확장 프로그램 그룹을 삭제하시겠습니까? {{names}}",
       "confirmButton": "삭제"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

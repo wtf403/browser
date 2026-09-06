@@ -276,6 +276,8 @@ mod tests {
       host_os: None,
       ephemeral,
       extension_group_id: None,
+      extension_ids: Vec::new(),
+      random_extension: false,
       proxy_bypass_rules: Vec::new(),
       created_by_id: None,
       created_by_email: None,

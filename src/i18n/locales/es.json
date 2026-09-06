@@ -34,7 +34,8 @@
       "saving": "Guardando…",
       "saved": "Guardado",
       "copied": "Copiado",
-      "learnMore": "Más información"
+      "learnMore": "Más información",
+      "random": "Random"
     },
     "status": {
       "active": "Activo",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "Eliminar grupos de extensiones",
       "groupsDescription": "¿Eliminar {{count}} grupos de extensiones? {{names}}",
       "confirmButton": "Eliminar"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

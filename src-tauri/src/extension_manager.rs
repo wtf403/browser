@@ -894,13 +894,39 @@ impl ExtensionManager {
     profile: &crate::profile::BrowserProfile,
     profile_data_path: &std::path::Path,
   ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let group_id = match &profile.extension_group_id {
-      Some(id) => id,
-      None => return Ok(Vec::new()),
-    };
-
-    let group = self.get_group(group_id)?;
-    if group.extension_ids.is_empty() {
+    use rand::seq::IndexedRandom;
+    // Union of assigned group + per-profile checkbox selection.
+    let mut wanted: Vec<String> = profile.extension_ids.clone();
+    if let Some(id) = &profile.extension_group_id {
+      if let Ok(group) = self.get_group(id) {
+        wanted.extend(group.extension_ids.clone());
+      }
+    }
+    // Ephemeral random mode: pick one random chromium-compatible extension
+    // from the group named "Random" (the ephemeral pool).
+    if profile.random_extension && profile.ephemeral {
+      if let Ok(groups) = self.list_groups() {
+        if let Some(pool) = groups.iter().find(|g| g.name == "Random") {
+          let candidates: Vec<&String> = pool
+            .extension_ids
+            .iter()
+            .filter(|eid| {
+              self
+                .get_extension(eid)
+                .map(|e| e.browser_compatibility.contains(&"chromium".to_string()))
+                .unwrap_or(false)
+            })
+            .collect();
+          if let Some(pick) = candidates.choose(&mut rand::rng()) {
+            if !wanted.contains(&pick.to_string()) {
+              log::info!("Ephemeral random extension pick: {pick}");
+              wanted.push(pick.to_string());
+            }
+          }
+        }
+      }
+    }
+    if wanted.is_empty() {
       return Ok(Vec::new());
     }
 
@@ -921,7 +947,7 @@ impl ExtensionManager {
         }
         fs::create_dir_all(&extensions_dir)?;
 
-        for ext_id in &group.extension_ids {
+        for ext_id in &wanted {
           if let Ok(ext) = self.get_extension(ext_id) {
             if !ext.browser_compatibility.contains(&"firefox".to_string()) {
               continue;
@@ -965,7 +991,7 @@ impl ExtensionManager {
         }
         fs::create_dir_all(&unpacked_base)?;
 
-        for ext_id in &group.extension_ids {
+        for ext_id in &wanted {
           if let Ok(ext) = self.get_extension(ext_id) {
             if !ext.browser_compatibility.contains(&"chromium".to_string()) {
               continue;
@@ -1313,6 +1339,117 @@ pub async fn get_extension_group_for_profile(
     }
     None => Ok(None),
   }
+}
+
+#[tauri::command]
+pub async fn import_canary_extensions() -> Result<Vec<Extension>, String> {
+  let canary = dirs::home_dir()
+    .map(|h| h.join("Library/Application Support/Google/Chrome Canary/Default/Extensions"))
+    .ok_or("No home dir")?;
+  if !canary.exists() {
+    return Err("Chrome Canary extensions dir not found".into());
+  }
+  let mgr = ExtensionManager::new();
+  let mut imported = Vec::new();
+  let existing: Vec<String> = mgr
+    .list_extensions()
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|e| e.description)
+    .collect();
+  let entries = std::fs::read_dir(&canary).map_err(|e| e.to_string())?;
+  for entry in entries.flatten() {
+    if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+      continue;
+    }
+    let ext_id = entry.file_name().to_string_lossy().to_string();
+    if ext_id == "Temp" {
+      continue;
+    }
+    // Each version subdir -> zip it
+    let mut versions: Vec<_> = std::fs::read_dir(entry.path())
+      .map(|r| {
+        r.flatten()
+          .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+          .collect()
+      })
+      .unwrap_or_default();
+    versions.sort_by_key(|e| e.file_name());
+    let Some(latest) = versions.pop() else {
+      continue;
+    };
+    let manifest = latest.path().join("manifest.json");
+    if !manifest.exists() {
+      continue;
+    }
+    // Zip the version dir in-memory
+    let mut buf = Vec::new();
+    {
+      let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+      let opts = zip::write::SimpleFileOptions::default();
+      let base = latest.path();
+      let mut stack = vec![base.clone()];
+      while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir)
+          .map(|r| r.flatten().collect::<Vec<_>>())
+          .unwrap_or_default()
+        {
+          let p = e.path();
+          let rel = p.strip_prefix(&base).unwrap().to_string_lossy().to_string();
+          if p.is_dir() {
+            zip.add_directory(rel, opts).ok();
+            stack.push(p);
+          } else {
+            zip.start_file(rel, opts).ok();
+            if let Ok(data) = std::fs::read(&p) {
+              use std::io::Write;
+              zip.write_all(&data).ok();
+            }
+          }
+        }
+      }
+      zip.finish().map_err(|e| e.to_string())?;
+    }
+    if buf.is_empty() {
+      continue;
+    }
+    // Skip if already imported (match by canary id stored in description field marker)
+    let marker = format!("canary:{ext_id}");
+    if existing.iter().any(|d| d.contains(&marker)) {
+      continue;
+    }
+    let mut ext = mgr
+      .add_extension(ext_id.clone(), format!("{ext_id}.zip"), buf)
+      .map_err(|e| format!("Failed to import {ext_id}: {e}"))?;
+    // Tag origin so re-imports are idempotent
+    ext.description = Some(format!(
+      "{} [{}]",
+      ext.description.unwrap_or_default(),
+      marker
+    ));
+    let _ = mgr.update_extension_internal(&ext);
+    imported.push(ext);
+  }
+  // Ensure Random + Optional groups exist and populate Optional with all imports
+  let groups = mgr.list_groups().unwrap_or_default();
+  let random_exists = groups.iter().any(|g| g.name == "Random");
+  let optional_id = if let Some(g) = groups.iter().find(|g| g.name == "Optional") {
+    g.id.clone()
+  } else {
+    mgr
+      .create_group("Optional".to_string())
+      .map_err(|e| e.to_string())?
+      .id
+  };
+  if !random_exists {
+    mgr
+      .create_group("Random".to_string())
+      .map_err(|e| e.to_string())?;
+  }
+  for ext in &imported {
+    let _ = mgr.add_extension_to_group(&optional_id, &ext.id);
+  }
+  Ok(imported)
 }
 
 #[cfg(test)]

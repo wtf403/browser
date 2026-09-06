@@ -34,7 +34,8 @@
       "saving": "Salvando…",
       "saved": "Salvo",
       "copied": "Copiado",
-      "learnMore": "Saiba mais"
+      "learnMore": "Saiba mais",
+      "random": "Random"
     },
     "status": {
       "active": "Ativo",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "Excluir grupos de extensões",
       "groupsDescription": "Excluir {{count}} grupos de extensões? {{names}}",
       "confirmButton": "Excluir"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

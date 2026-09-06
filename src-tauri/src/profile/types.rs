@@ -65,6 +65,10 @@ pub struct BrowserProfile {
   #[serde(default)]
   pub extension_group_id: Option<String>,
   #[serde(default)]
+  pub extension_ids: Vec<String>,
+  #[serde(default)]
+  pub random_extension: bool,
+  #[serde(default)]
   pub proxy_bypass_rules: Vec<String>,
   #[serde(default)]
   pub created_by_id: Option<String>,

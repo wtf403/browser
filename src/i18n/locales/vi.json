@@ -34,7 +34,8 @@
       "saving": "Đang lưu…",
       "saved": "Đã lưu",
       "copied": "Đã sao chép",
-      "learnMore": "Tìm hiểu thêm"
+      "learnMore": "Tìm hiểu thêm",
+      "random": "Random"
     },
     "status": {
       "active": "Đang hoạt động",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "Xóa nhóm tiện ích",
       "groupsDescription": "Xóa {{count}} nhóm tiện ích? {{names}}",
       "confirmButton": "Xóa"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

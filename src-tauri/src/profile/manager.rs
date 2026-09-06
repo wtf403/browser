@@ -87,6 +87,9 @@ impl ProfileManager {
     ephemeral: bool,
     dns_blocklist: Option<String>,
     launch_hook: Option<String>,
+    extension_group_id: Option<String>,
+    extension_ids: Option<Vec<String>>,
+    random_extension: Option<bool>,
   ) -> Result<BrowserProfile, Box<dyn std::error::Error>> {
     if proxy_id.is_some() && vpn_id.is_some() {
       return Err("Cannot set both proxy_id and vpn_id".into());
@@ -188,6 +191,8 @@ impl ProfileManager {
           host_os: None,
           ephemeral: false,
           extension_group_id: None,
+          extension_ids: Vec::new(),
+          random_extension: false,
           proxy_bypass_rules: Vec::new(),
           created_by_id: None,
           created_by_email: None,
@@ -293,6 +298,8 @@ impl ProfileManager {
           host_os: None,
           ephemeral: false,
           extension_group_id: None,
+          extension_ids: Vec::new(),
+          random_extension: false,
           proxy_bypass_rules: Vec::new(),
           created_by_id: None,
           created_by_email: None,
@@ -371,7 +378,9 @@ impl ProfileManager {
       last_sync: None,
       host_os: Some(get_host_os()),
       ephemeral,
-      extension_group_id: None,
+      extension_group_id,
+      extension_ids: extension_ids.unwrap_or_default(),
+      random_extension: random_extension.unwrap_or(false),
       proxy_bypass_rules: Vec::new(),
       created_by_id: None,
       created_by_email: None,
@@ -1074,6 +1083,8 @@ impl ProfileManager {
       host_os: Some(get_host_os()),
       ephemeral: false,
       extension_group_id: source.extension_group_id,
+      extension_ids: source.extension_ids,
+      random_extension: source.random_extension,
       proxy_bypass_rules: source.proxy_bypass_rules,
       created_by_id: None,
       created_by_email: None,
@@ -2312,6 +2323,9 @@ pub async fn create_browser_profile_with_group(
   ephemeral: bool,
   dns_blocklist: Option<String>,
   launch_hook: Option<String>,
+  extension_group_id: Option<String>,
+  extension_ids: Option<Vec<String>>,
+  random_extension: Option<bool>,
 ) -> Result<BrowserProfile, String> {
   let profile_manager = ProfileManager::instance();
   profile_manager
@@ -2330,6 +2344,9 @@ pub async fn create_browser_profile_with_group(
       ephemeral,
       dns_blocklist,
       launch_hook,
+      extension_group_id,
+      extension_ids,
+      random_extension,
     )
     .await
     .map_err(|e| format!("Failed to create profile: {e}"))
@@ -2491,6 +2508,9 @@ pub async fn create_browser_profile_new(
   ephemeral: Option<bool>,
   dns_blocklist: Option<String>,
   launch_hook: Option<String>,
+  extension_group_id: Option<String>,
+  extension_ids: Option<Vec<String>>,
+  random_extension: Option<bool>,
 ) -> Result<BrowserProfile, String> {
   // A dead/unreachable proxy or VPN (or a 402 from an expired proxy
   // subscription) cancels creation with a translatable error.
@@ -2513,6 +2533,9 @@ pub async fn create_browser_profile_new(
     ephemeral.unwrap_or(false),
     dns_blocklist,
     launch_hook,
+    extension_group_id,
+    extension_ids,
+    random_extension,
   )
   .await
 }

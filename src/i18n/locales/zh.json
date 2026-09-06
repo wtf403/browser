@@ -34,7 +34,8 @@
       "saving": "正在保存…",
       "saved": "已保存",
       "copied": "已复制",
-      "learnMore": "了解更多"
+      "learnMore": "了解更多",
+      "random": "Random"
     },
     "status": {
       "active": "活跃",
@@ -1312,7 +1313,9 @@
       "groupsTitle": "删除扩展组",
       "groupsDescription": "删除 {{count}} 个扩展组？{{names}}",
       "confirmButton": "删除"
-    }
+    },
+    "importCanary": "Import Canary",
+    "randomEphemeral": "Random extension in ephemeral mode"
   },
   "pro": {
     "badge": "PRO",

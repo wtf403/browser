@@ -124,8 +124,8 @@ use profile_importer::{detect_existing_profiles, import_browser_profile};
 use extension_manager::{
   add_extension, add_extension_to_group, assign_extension_group_to_profile, create_extension_group,
   delete_extension, delete_extension_group, get_extension_group_for_profile, get_extension_icon,
-  list_extension_groups, list_extensions, remove_extension_from_group, update_extension,
-  update_extension_group,
+  import_canary_extensions, list_extension_groups, list_extensions, remove_extension_from_group,
+  update_extension, update_extension_group,
 };
 
 use group_manager::{
@@ -1165,6 +1165,8 @@ async fn generate_sample_fingerprint(
     host_os: None,
     ephemeral: false,
     extension_group_id: None,
+    extension_ids: Vec::new(),
+    random_extension: false,
     proxy_bypass_rules: Vec::new(),
     created_by_id: None,
     created_by_email: None,
@@ -2195,6 +2197,7 @@ pub fn run() {
       update_extension,
       delete_extension,
       list_extension_groups,
+      import_canary_extensions,
       create_extension_group,
       update_extension_group,
       delete_extension_group,

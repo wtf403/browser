@@ -2223,6 +2223,9 @@ impl McpServer {
         false,
         None,
         launch_hook,
+        None,
+        None,
+        None,
       )
       .await
       .map_err(|e| McpError {
