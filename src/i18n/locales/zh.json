@@ -1315,7 +1315,10 @@
       "confirmButton": "删除"
     },
     "importCanary": "Import Canary",
-    "randomEphemeral": "Random extension in ephemeral mode"
+    "randomEphemeral": "Random extension in ephemeral mode",
+    "bundled": "Bundled",
+    "optional": "Optional",
+    "builtIn": "Built-in"
   },
   "pro": {
     "badge": "PRO",

@@ -1341,6 +1341,173 @@ pub async fn get_extension_group_for_profile(
   }
 }
 
+/// Extensions shipped inside the Donut bundle (embedded at compile time via
+/// `include_bytes!` from `src-tauri/bundled-extensions/`).
+/// (canary_id, display name, version, pre-checked in the create-profile checklist)
+const BUNDLED_EMBEDDED: &[(&str, &str, &str, bool)] = &[
+  (
+    "ghbmnnjooekpmoecnnnilnnbdlolhkhi",
+    "Google Docs Offline",
+    "1.109.1",
+    true,
+  ),
+  (
+    "nmmhkkegccagdldgiimedpiccmgmieda",
+    "Chrome Web Store Payments",
+    "1.0.0.6",
+    true,
+  ),
+];
+
+/// Built-in Chromium component extensions. They are compiled into the browser
+/// binary, so there is nothing to bundle or `--load-extension` — they are
+/// listed for display only (always present, shown checked + disabled).
+/// (component id, display name, version, pre-checked)
+const BUNDLED_BUILTIN: &[(&str, &str, &str, bool)] = &[
+  (
+    "admccjkmockfdflocgggjfgdacdodkdf",
+    "Gemini in Chrome",
+    "1.2",
+    true,
+  ),
+  (
+    "fignfifoniblkonapihmkfakmlgkbkcf",
+    "Google Network Speech",
+    "1.0",
+    true,
+  ),
+  (
+    "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+    "Chrome PDF Viewer",
+    "1",
+    true,
+  ),
+  (
+    "nkeimhogjdpnpccoofpliimaahmaaome",
+    "Google Hangouts",
+    "1.4.5",
+    true,
+  ),
+];
+
+fn bundled_zip(canary_id: &str) -> Option<&'static [u8]> {
+  match canary_id {
+    "ghbmnnjooekpmoecnnnilnnbdlolhkhi" => Some(include_bytes!(
+      "../bundled-extensions/ghbmnnjooekpmoecnnnilnnbdlolhkhi.zip"
+    )),
+    "nmmhkkegccagdldgiimedpiccmgmieda" => Some(include_bytes!(
+      "../bundled-extensions/nmmhkkegccagdldgiimedpiccmgmieda.zip"
+    )),
+    _ => None,
+  }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BundledExtensionInfo {
+  pub canary_id: String,
+  pub name: String,
+  pub version: String,
+  pub builtin: bool,
+  pub default_checked: bool,
+  /// Donut extension id once seeded (None for built-ins).
+  pub installed_id: Option<String>,
+}
+
+impl ExtensionManager {
+  /// Seed embedded bundled extensions into the store (idempotent).
+  /// Called once at app startup.
+  pub fn ensure_bundled_extensions(&self) {
+    let existing: Vec<String> = self
+      .list_extensions()
+      .unwrap_or_default()
+      .into_iter()
+      .filter_map(|e| e.description)
+      .collect();
+    for (canary_id, name, version, _) in BUNDLED_EMBEDDED {
+      let marker = format!("bundled:{canary_id}");
+      if existing.iter().any(|d| d.contains(&marker)) {
+        continue;
+      }
+      let Some(zip) = bundled_zip(canary_id) else {
+        continue;
+      };
+      match self.add_extension(name.to_string(), format!("{canary_id}.zip"), zip.to_vec()) {
+        Ok(mut ext) => {
+          ext.description = Some(format!("{name} {version} [{marker}]"));
+          let _ = self.update_extension_internal(&ext);
+          log::info!("Seeded bundled extension: {name}");
+        }
+        Err(e) => log::warn!("Failed to seed bundled extension {name}: {e}"),
+      }
+    }
+    // Keep a "Bundled" group in sync with the seeded extensions.
+    let seeded: Vec<String> = self
+      .list_extensions()
+      .unwrap_or_default()
+      .into_iter()
+      .filter(|e| {
+        e.description
+          .as_deref()
+          .is_some_and(|d| d.contains("bundled:"))
+      })
+      .map(|e| e.id)
+      .collect();
+    if !seeded.is_empty() {
+      let group_id = match self
+        .list_groups()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|g| g.name == "Bundled")
+      {
+        Some(g) => g.id,
+        None => match self.create_group("Bundled".to_string()) {
+          Ok(g) => g.id,
+          Err(_) => return,
+        },
+      };
+      let _ = self.update_group(&group_id, None, Some(seeded));
+    }
+  }
+}
+
+#[tauri::command]
+pub async fn list_bundled_extensions() -> Result<Vec<BundledExtensionInfo>, String> {
+  let mgr = ExtensionManager::new();
+  let installed = mgr.list_extensions().unwrap_or_default();
+  let find = |canary_id: &str| {
+    installed
+      .iter()
+      .find(|e| {
+        e.description
+          .as_deref()
+          .is_some_and(|d| d.contains(&format!("bundled:{canary_id}")))
+      })
+      .map(|e| e.id.clone())
+  };
+  let mut out = Vec::new();
+  for (canary_id, name, version, default_checked) in BUNDLED_EMBEDDED {
+    out.push(BundledExtensionInfo {
+      canary_id: canary_id.to_string(),
+      name: name.to_string(),
+      version: version.to_string(),
+      builtin: false,
+      default_checked: *default_checked,
+      installed_id: find(canary_id),
+    });
+  }
+  for (canary_id, name, version, default_checked) in BUNDLED_BUILTIN {
+    out.push(BundledExtensionInfo {
+      canary_id: canary_id.to_string(),
+      name: name.to_string(),
+      version: version.to_string(),
+      builtin: true,
+      default_checked: *default_checked,
+      installed_id: None,
+    });
+  }
+  Ok(out)
+}
+
 #[tauri::command]
 pub async fn import_canary_extensions() -> Result<Vec<Extension>, String> {
   let canary = dirs::home_dir()

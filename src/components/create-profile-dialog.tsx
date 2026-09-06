@@ -204,6 +204,16 @@ export function CreateProfileDialog({
     [],
   );
   const [randomExtension, setRandomExtension] = useState(false);
+  const [bundledExtensions, setBundledExtensions] = useState<
+    {
+      canary_id: string;
+      name: string;
+      version: string;
+      builtin: boolean;
+      default_checked: boolean;
+      installed_id: string | null;
+    }[]
+  >([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -218,6 +228,32 @@ export function CreateProfileDialog({
         .then(setAllExtensions)
         .catch(() => {
           setAllExtensions([]);
+        });
+      void invoke<
+        {
+          canary_id: string;
+          name: string;
+          version: string;
+          builtin: boolean;
+          default_checked: boolean;
+          installed_id: string | null;
+        }[]
+      >("list_bundled_extensions")
+        .then((bundled) => {
+          setBundledExtensions(bundled);
+          // Pre-check bundled defaults (only additive, never unchecks user picks)
+          const defaults = bundled
+            .filter((b) => b.default_checked && b.installed_id)
+            .map((b) => b.installed_id as string);
+          if (defaults.length > 0) {
+            setSelectedExtensionIds((prev) => [
+              ...prev,
+              ...defaults.filter((id) => !prev.includes(id)),
+            ]);
+          }
+        })
+        .catch(() => {
+          setBundledExtensions([]);
         });
     }
   }, [isOpen]);
@@ -1437,29 +1473,86 @@ export function CreateProfileDialog({
                           )}
                           {allExtensions.length > 0 && (
                             <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
-                              {allExtensions.map((ext) => (
-                                <div
-                                  key={ext.id}
-                                  className="flex items-center gap-2 text-sm"
-                                >
-                                  <Checkbox
-                                    id={`ext-${ext.id}`}
-                                    checked={selectedExtensionIds.includes(
-                                      ext.id,
-                                    )}
-                                    onCheckedChange={(checked) => {
-                                      setSelectedExtensionIds((prev) =>
-                                        checked === true
-                                          ? [...prev, ext.id]
-                                          : prev.filter((id) => id !== ext.id),
-                                      );
-                                    }}
-                                  />
-                                  <Label htmlFor={`ext-${ext.id}`}>
-                                    {ext.name}
-                                  </Label>
-                                </div>
-                              ))}
+                              {bundledExtensions.length > 0 && (
+                                <>
+                                  <p className="px-1 text-xs font-medium text-muted-foreground">
+                                    {t("extensions.bundled", "Bundled")}
+                                  </p>
+                                  {bundledExtensions.map((b) => (
+                                    <div
+                                      key={b.canary_id}
+                                      className="flex items-center gap-2 text-sm"
+                                    >
+                                      <Checkbox
+                                        id={`bundled-${b.canary_id}`}
+                                        disabled={b.builtin}
+                                        checked={
+                                          b.builtin ||
+                                          (b.installed_id !== null &&
+                                            selectedExtensionIds.includes(
+                                              b.installed_id,
+                                            ))
+                                        }
+                                        onCheckedChange={(checked) => {
+                                          if (!b.installed_id) return;
+                                          const id = b.installed_id;
+                                          setSelectedExtensionIds((prev) =>
+                                            checked === true
+                                              ? [...prev, id]
+                                              : prev.filter((x) => x !== id),
+                                          );
+                                        }}
+                                      />
+                                      <Label htmlFor={`bundled-${b.canary_id}`}>
+                                        {b.name}
+                                      </Label>
+                                      {b.builtin && (
+                                        <Badge
+                                          variant="outline"
+                                          className="px-1 py-0 text-[10px] leading-tight"
+                                        >
+                                          {t("extensions.builtIn", "Built-in")}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <p className="px-1 pt-1 text-xs font-medium text-muted-foreground">
+                                    {t("extensions.optional", "Optional")}
+                                  </p>
+                                </>
+                              )}
+                              {allExtensions
+                                .filter(
+                                  (ext) =>
+                                    !bundledExtensions.some(
+                                      (b) => b.installed_id === ext.id,
+                                    ),
+                                )
+                                .map((ext) => (
+                                  <div
+                                    key={ext.id}
+                                    className="flex items-center gap-2 text-sm"
+                                  >
+                                    <Checkbox
+                                      id={`ext-${ext.id}`}
+                                      checked={selectedExtensionIds.includes(
+                                        ext.id,
+                                      )}
+                                      onCheckedChange={(checked) => {
+                                        setSelectedExtensionIds((prev) =>
+                                          checked === true
+                                            ? [...prev, ext.id]
+                                            : prev.filter(
+                                                (id) => id !== ext.id,
+                                              ),
+                                        );
+                                      }}
+                                    />
+                                    <Label htmlFor={`ext-${ext.id}`}>
+                                      {ext.name}
+                                    </Label>
+                                  </div>
+                                ))}
                             </div>
                           )}
                           <div className="flex items-center gap-2 text-sm">
