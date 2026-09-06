@@ -318,6 +318,10 @@ pub fn is_browser_version_nightly(
       // For Wayfern, all releases from version.json are stable
       false
     }
+    "cloak" => {
+      // CloakBrowser GitHub releases are stable
+      false
+    }
     _ => {
       // Default fallback
       is_nightly_version(version)

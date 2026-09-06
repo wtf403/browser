@@ -74,6 +74,10 @@ impl BrowserVersionManager {
         // Camoufox supports all platforms and architectures according to the JS code
         Ok(true)
       }
+      "cloak" => {
+        // CloakBrowser ships macos/linux/windows builds (see downloader asset matrix)
+        Ok(true)
+      }
       "wayfern" => {
         // Wayfern support depends on version.json downloads availability
         // Currently supports macos-arm64 and linux-x64
@@ -104,6 +108,7 @@ impl BrowserVersionManager {
       "chromium",
       "camoufox",
       "wayfern",
+      "cloak",
     ];
 
     all_browsers
@@ -242,6 +247,7 @@ impl BrowserVersionManager {
       "chromium" => self.fetch_chromium_versions(true).await?,
       "camoufox" => self.fetch_camoufox_versions(true).await?,
       "wayfern" => self.fetch_wayfern_versions(true).await?,
+      "cloak" => self.fetch_cloak_versions(true).await?,
       _ => return Err(format!("Unsupported browser: {browser}").into()),
     };
 
@@ -450,6 +456,27 @@ impl BrowserVersionManager {
             version: version.clone(),
             is_prerelease: false, // Wayfern releases are always stable
             date: "".to_string(),
+          })
+          .collect()
+      }
+      "cloak" => {
+        let releases = self.fetch_cloak_releases_detailed(true).await?;
+        merged_versions
+          .into_iter()
+          .map(|version| {
+            if let Some(release) = releases.iter().find(|r| r.tag_name == version) {
+              BrowserVersionInfo {
+                version: release.tag_name.clone(),
+                is_prerelease: release.is_nightly,
+                date: release.published_at.clone(),
+              }
+            } else {
+              BrowserVersionInfo {
+                version: version.clone(),
+                is_prerelease: false, // CloakBrowser releases are stable
+                date: "".to_string(),
+              }
+            }
           })
           .collect()
       }
@@ -872,6 +899,24 @@ impl BrowserVersionManager {
     self
       .api_client
       .fetch_camoufox_releases_with_caching(no_caching)
+      .await
+  }
+
+  async fn fetch_cloak_versions(
+    &self,
+    no_caching: bool,
+  ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let releases = self.fetch_cloak_releases_detailed(no_caching).await?;
+    Ok(releases.into_iter().map(|r| r.tag_name).collect())
+  }
+
+  async fn fetch_cloak_releases_detailed(
+    &self,
+    no_caching: bool,
+  ) -> Result<Vec<GithubRelease>, Box<dyn std::error::Error + Send + Sync>> {
+    self
+      .api_client
+      .fetch_cloak_releases_with_caching(no_caching)
       .await
   }
 
