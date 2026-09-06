@@ -722,10 +722,25 @@ impl Downloader {
       );
     }
 
-    let download_info = self
+    let download_info = match self
       .version_service
       .get_download_info(&browser_str, &version)
-      .map_err(|e| format!("Failed to get download info: {e}"))?;
+    {
+      Ok(info) => info,
+      Err(e) => {
+        // Release the in-progress guard so retries aren't stuck behind
+        // a stale "already being downloaded" error.
+        {
+          let mut downloading = DOWNLOADING_BROWSERS.lock().unwrap();
+          downloading.remove(&download_key);
+        }
+        {
+          let mut tokens = DOWNLOAD_CANCELLATION_TOKENS.lock().unwrap();
+          tokens.remove(&download_key);
+        }
+        return Err(format!("Failed to get download info: {e}").into());
+      }
+    };
 
     // Create browser directory
     let mut browser_dir = binaries_dir.clone();

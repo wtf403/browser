@@ -728,6 +728,32 @@ impl BrowserVersionManager {
           is_archive,
         })
       }
+      "cloak" => {
+        // CloakBrowser asset naming: cloakbrowser-{os}-{arch}.{ext}
+        // (windows/x64/zip, linux, darwin for macos). The actual URL is
+        // resolved dynamically from GitHub releases in downloader.rs
+        // resolve_download_url; only the filename matters here.
+        let (os_name, arch_name, ext) = match (os.as_str(), arch.as_str()) {
+          ("windows", "x64") => ("windows", "x64", "zip"),
+          ("linux", "x64") => ("linux", "x64", "tar.gz"),
+          ("linux", "arm64") => ("linux", "arm64", "tar.gz"),
+          ("macos", "x64") => ("darwin", "x64", "tar.gz"),
+          ("macos", "arm64") => ("darwin", "arm64", "tar.gz"),
+          _ => {
+            return Err(
+              format!("Unsupported platform/architecture for CloakBrowser: {os}/{arch}").into(),
+            )
+          }
+        };
+        let filename = format!("cloakbrowser-{os_name}-{arch_name}.{ext}");
+        Ok(DownloadInfo {
+          url: format!(
+            "https://github.com/CloakHQ/CloakBrowser/releases/download/{version}/{filename}"
+          ),
+          filename,
+          is_archive: true,
+        })
+      }
       _ => Err(format!("Unsupported browser: {browser}").into()),
     }
   }
@@ -1136,6 +1162,42 @@ mod tests {
       );
       assert!(!brave_info.is_archive);
     }
+
+    // Test CloakBrowser - filename mirrors the GitHub asset matrix,
+    // actual URL is resolved dynamically in downloader.rs
+    let cloak_info = service
+      .get_download_info("cloak", "chromium-v151.0.7922.108.4-pro")
+      .unwrap();
+    assert!(cloak_info.is_archive);
+    assert!(cloak_info
+      .url
+      .contains("/CloakHQ/CloakBrowser/releases/download/chromium-v151.0.7922.108.4-pro/"));
+
+    #[cfg(target_os = "macos")]
+    {
+      assert!(cloak_info.filename.starts_with("cloakbrowser-darwin-"));
+      assert!(cloak_info.filename.ends_with(".tar.gz"));
+      assert!(cloak_info.url.contains(&cloak_info.filename));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+      assert!(cloak_info.filename.starts_with("cloakbrowser-linux-"));
+      assert!(cloak_info.filename.ends_with(".tar.gz"));
+      assert!(cloak_info.url.contains(&cloak_info.filename));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+      assert_eq!(cloak_info.filename, "cloakbrowser-windows-x64.zip");
+      assert!(cloak_info.url.contains(&cloak_info.filename));
+    }
+
+    // CloakBrowser must be listed as supported and report release types
+    assert!(service
+      .get_supported_browsers()
+      .contains(&"cloak".to_string()));
+    assert!(service.is_browser_supported("cloak").unwrap_or(false));
 
     // Test unsupported browser
     let unsupported_result = service.get_download_info("unsupported", "1.0.0");
