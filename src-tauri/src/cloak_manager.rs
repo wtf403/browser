@@ -99,13 +99,26 @@ impl CloakManager {
     let exe = if cfg!(target_os = "windows") {
       browser_dir.join("cloakbrowser.exe")
     } else if cfg!(target_os = "macos") {
-      // Look for the binary inside the extracted archive
+      // Look for the binary inside the extracted archive. macOS tarballs
+      // extract to Chromium.app, so resolve Contents/MacOS/* when present.
       let candidates = ["cloakbrowser", "Cloakbrowser", "CloakBrowser"];
-      candidates
+      let flat = candidates
         .iter()
         .map(|name| browser_dir.join(name))
-        .find(|p| p.exists())
-        .unwrap_or_else(|| browser_dir.join("cloakbrowser"))
+        .find(|p| p.exists());
+      if let Some(path) = flat {
+        path
+      } else if let Ok(entries) = std::fs::read_dir(&browser_dir) {
+        entries
+          .flatten()
+          .filter(|e| e.path().extension().is_some_and(|ext| ext == "app"))
+          .filter_map(|e| std::fs::read_dir(e.path().join("Contents").join("MacOS")).ok())
+          .flat_map(|rd| rd.filter_map(Result::ok).map(|f| f.path()))
+          .find(|p| p.is_file())
+          .unwrap_or_else(|| browser_dir.join("cloakbrowser"))
+      } else {
+        browser_dir.join("cloakbrowser")
+      }
     } else {
       browser_dir.join("cloakbrowser")
     };

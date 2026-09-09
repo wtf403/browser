@@ -811,6 +811,25 @@ impl Browser for CloakBrowser {
           return Ok(path.clone());
         }
       }
+      // macOS tarballs extract to Chromium.app — resolve the binary inside
+      // the bundle (Contents/MacOS/Chromium), same as Wayfern.
+      if let Ok(entries) = std::fs::read_dir(install_dir) {
+        for entry in entries.flatten() {
+          let app_path = entry.path();
+          if app_path.extension().is_some_and(|ext| ext == "app") {
+            let macos_dir = app_path.join("Contents").join("MacOS");
+            if let Ok(bin_entries) = std::fs::read_dir(&macos_dir) {
+              if let Some(exe) = bin_entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .find(|p| p.is_file())
+              {
+                return Ok(exe);
+              }
+            }
+          }
+        }
+      }
       return Err(
         format!(
           "CloakBrowser executable not found in {}",
@@ -880,7 +899,18 @@ impl Browser for CloakBrowser {
         install_dir.join("CloakBrowser"),
         install_dir.join("Cloakbrowser"),
       ];
-      return candidates.iter().any(|p| p.exists());
+      if candidates.iter().any(|p| p.exists()) {
+        return true;
+      }
+      // macOS tarballs extract to Chromium.app — any .app bundle counts.
+      if let Ok(entries) = std::fs::read_dir(install_dir) {
+        for entry in entries.flatten() {
+          if entry.path().extension().is_some_and(|ext| ext == "app") {
+            return true;
+          }
+        }
+      }
+      return false;
     }
 
     #[cfg(target_os = "linux")]
