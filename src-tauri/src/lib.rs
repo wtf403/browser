@@ -1835,6 +1835,47 @@ pub fn run() {
         }
       });
 
+      // Check and download CloakBrowser at startup if needed
+      let app_handle_cloak = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+        // Wait a bit for the app to fully initialize
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let registry = crate::downloaded_browsers_registry::DownloadedBrowsersRegistry::instance();
+        let cloak_versions = registry.get_downloaded_versions("cloak");
+
+        if cloak_versions.is_empty() {
+          log::info!("CloakBrowser not found, downloading latest stable version at startup...");
+          let version_service = crate::browser_version_manager::BrowserVersionManager::instance();
+
+          // Get latest stable CloakBrowser version
+          match version_service.get_browser_release_types("cloak").await {
+            Ok(release_types) => {
+              if let Some(latest_stable) = release_types.stable {
+                log::info!("Downloading CloakBrowser version: {}", latest_stable);
+                let downloader = crate::downloader::Downloader::instance();
+                let version_to_download = latest_stable.clone();
+                if let Err(e) = downloader
+                  .download_browser_full(&app_handle_cloak, "cloak".to_string(), latest_stable)
+                  .await
+                {
+                  log::error!("Failed to download CloakBrowser at startup: {e}");
+                } else {
+                  log::info!("CloakBrowser {} downloaded successfully at startup", version_to_download);
+                }
+              } else {
+                log::warn!("No stable CloakBrowser version available for auto-download");
+              }
+            }
+            Err(e) => {
+              log::error!("Failed to fetch CloakBrowser versions for auto-download: {e}");
+            }
+          }
+        } else {
+          log::info!("CloakBrowser already downloaded: {:?}", cloak_versions);
+        }
+      });
+
       // Start proxy cleanup task for dead browser processes
       let app_handle_proxy_cleanup = app.handle().clone();
       tauri::async_runtime::spawn(async move {
