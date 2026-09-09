@@ -189,26 +189,25 @@ impl Downloader {
         Ok(download_url)
       }
       BrowserType::Cloak => {
-        // CloakBrowser uses GitHub releases
+        // CloakBrowser uses GitHub releases, but newer `-pro` tags ship only
+        // SHA256SUMS (binaries are gated behind a cloakbrowser.dev license key).
+        // Free binaries only exist on older tags, and not every tag has every
+        // platform (e.g. no darwin builds newer than v145). So: prefer the
+        // requested version, otherwise walk newest->oldest and take the first
+        // release that actually contains a binary asset for this platform.
         let releases: Vec<crate::browser::GithubRelease> = self
           .api_client
           .fetch_cloak_releases_with_caching(true)
           .await?;
 
-        let release = releases
-          .iter()
-          .find(|r| r.tag_name == version)
-          .or_else(|| {
-            log::info!(
-              "CloakBrowser: requested version {version} not found, using latest available"
-            );
-            releases.first()
-          })
-          .ok_or("No CloakBrowser releases found".to_string())?;
+        if releases.is_empty() {
+          return Err("No CloakBrowser releases found".to_string().into());
+        }
 
         let (os, arch) = Self::get_platform_info();
 
         // CloakBrowser asset naming: cloakbrowser-{os}-{arch}.{ext}
+        // Note: macOS assets use `darwin`, e.g. cloakbrowser-darwin-arm64.tar.gz
         let (os_name, arch_name, ext) = match (os.as_str(), arch.as_str()) {
           ("windows", "x64") => ("windows", "x64", "zip"),
           ("linux", "x64") => ("linux", "x64", "tar.gz"),
@@ -219,16 +218,46 @@ impl Downloader {
         };
 
         let pattern = format!("cloakbrowser-{os_name}-{arch_name}.{ext}");
-        let asset_url = release
-          .assets
-          .iter()
-          .find(|a| a.name == pattern)
-          .map(|a| a.browser_download_url.clone())
-          .ok_or(format!(
-            "No compatible asset found for CloakBrowser version {version} on {os}/{arch}"
-          ))?;
+        let has_asset =
+          |r: &crate::browser::GithubRelease| r.assets.iter().any(|a| a.name == pattern);
 
-        Ok(asset_url)
+        // Requested version first (if it has our asset), then newest->oldest.
+        let ordered: Vec<&crate::browser::GithubRelease> = {
+          let mut v: Vec<&crate::browser::GithubRelease> = Vec::new();
+          if let Some(r) = releases.iter().find(|r| r.tag_name == version) {
+            v.push(r);
+          }
+          v.extend(releases.iter().filter(|r| r.tag_name != version));
+          v
+        };
+
+        let mut tried: Vec<String> = Vec::new();
+        for release in ordered {
+          if has_asset(release) {
+            if release.tag_name != version {
+              log::info!(
+                "CloakBrowser: {version} has no {os}/{arch} binary, falling back to {}",
+                release.tag_name
+              );
+            }
+            let url = release
+              .assets
+              .iter()
+              .find(|a| a.name == pattern)
+              .map(|a| a.browser_download_url.clone())
+              .ok_or(format!(
+                "No compatible asset found for CloakBrowser version {version} on {os}/{arch}"
+              ))?;
+            return Ok(url);
+          }
+          tried.push(release.tag_name.clone());
+        }
+
+        Err(format!(
+          "No CloakBrowser binary for {os}/{arch} in any release (checked: {}). Newer builds are Pro-only via a cloakbrowser.dev license key.",
+          tried.join(", ")
+        )
+        .into())
       }
     }
   }

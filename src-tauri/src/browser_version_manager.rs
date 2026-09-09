@@ -933,7 +933,20 @@ impl BrowserVersionManager {
     no_caching: bool,
   ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
     let releases = self.fetch_cloak_releases_detailed(no_caching).await?;
-    Ok(releases.into_iter().map(|r| r.tag_name).collect())
+    // Newer `-pro` tags ship only SHA256SUMS (binaries are Pro-only via
+    // cloakbrowser.dev), so only list tags that contain an actual binary asset.
+    Ok(
+      releases
+        .into_iter()
+        .filter(|r| {
+          r.assets.iter().any(|a| {
+            a.name.starts_with("cloakbrowser-")
+              && (a.name.ends_with(".tar.gz") || a.name.ends_with(".zip"))
+          })
+        })
+        .map(|r| r.tag_name)
+        .collect(),
+    )
   }
 
   async fn fetch_cloak_releases_detailed(
