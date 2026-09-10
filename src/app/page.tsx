@@ -1506,12 +1506,15 @@ export default function Home() {
     };
   }, [t]);
 
-  // Show warning for non-wayfern/camoufox profiles (support ending March 15, 2026)
+  // Show warning for non-wayfern/camoufox/cloak profiles (support ending March 15, 2026)
   useEffect(() => {
     if (profiles.length === 0) return;
 
     const unsupportedProfiles = profiles.filter(
-      (p) => p.browser !== "wayfern" && p.browser !== "camoufox",
+      (p) =>
+        p.browser !== "wayfern" &&
+        p.browser !== "camoufox" &&
+        p.browser !== "cloak",
     );
 
     if (unsupportedProfiles.length > 0) {

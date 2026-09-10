@@ -601,7 +601,7 @@ impl McpServer {
             },
             "browser": {
               "type": "string",
-              "enum": ["wayfern", "camoufox"],
+              "enum": ["wayfern", "camoufox", "cloak"],
               "description": "Browser engine to use"
             },
             "proxy_id": {
@@ -1803,7 +1803,7 @@ impl McpServer {
     // Filter to only Wayfern and Camoufox profiles
     let filtered: Vec<&BrowserProfile> = profiles
       .iter()
-      .filter(|p| p.browser == "wayfern" || p.browser == "camoufox")
+      .filter(|p| p.browser == "wayfern" || p.browser == "camoufox" || p.browser == "cloak")
       .collect();
 
     Ok(serde_json::json!({
@@ -1841,11 +1841,11 @@ impl McpServer {
         message: format!("Profile not found: {profile_id}"),
       })?;
 
-    // Check if it's a Wayfern or Camoufox profile
-    if profile.browser != "wayfern" && profile.browser != "camoufox" {
+    // Check if it's a Wayfern, Camoufox, or Cloak profile
+    if profile.browser != "wayfern" && profile.browser != "camoufox" && profile.browser != "cloak" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+        message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
       });
     }
 
@@ -1894,11 +1894,11 @@ impl McpServer {
         message: format!("Profile not found: {profile_id}"),
       })?;
 
-    // Check if it's a Wayfern or Camoufox profile
-    if profile.browser != "wayfern" && profile.browser != "camoufox" {
+    // Check if it's a Wayfern, Camoufox, or Cloak profile
+    if profile.browser != "wayfern" && profile.browser != "camoufox" && profile.browser != "cloak" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+        message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
       });
     }
 
@@ -1964,11 +1964,11 @@ impl McpServer {
         message: format!("Profile not found: {profile_id}"),
       })?;
 
-    // Check if it's a Wayfern or Camoufox profile
-    if profile.browser != "wayfern" && profile.browser != "camoufox" {
+    // Check if it's a Wayfern, Camoufox, or Cloak profile
+    if profile.browser != "wayfern" && profile.browser != "camoufox" && profile.browser != "cloak" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+        message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
       });
     }
 
@@ -2049,9 +2049,10 @@ impl McpServer {
         lines.push(format!("{profile_id}: not found"));
         continue;
       };
-      if profile.browser != "wayfern" && profile.browser != "camoufox" {
+      if profile.browser != "wayfern" && profile.browser != "camoufox" && profile.browser != "cloak"
+      {
         lines.push(format!(
-          "{profile_id}: unsupported browser (MCP supports Wayfern/Camoufox)"
+          "{profile_id}: unsupported browser (MCP supports Wayfern/Camoufox/Cloak)"
         ));
         continue;
       }
@@ -2165,10 +2166,10 @@ impl McpServer {
         message: "Missing browser".to_string(),
       })?;
 
-    if browser != "wayfern" && browser != "camoufox" {
+    if browser != "wayfern" && browser != "camoufox" && browser != "cloak" {
       return Err(McpError {
         code: -32602,
-        message: "browser must be 'wayfern' or 'camoufox'".to_string(),
+        message: "browser must be 'wayfern', 'camoufox', or 'cloak'".to_string(),
       });
     }
 
@@ -2465,11 +2466,11 @@ impl McpServer {
         message: format!("Profile not found: {profile_id}"),
       })?;
 
-    // Check if it's a Wayfern or Camoufox profile
-    if profile.browser != "wayfern" && profile.browser != "camoufox" {
+    // Check if it's a Wayfern, Camoufox, or Cloak profile
+    if profile.browser != "wayfern" && profile.browser != "camoufox" && profile.browser != "cloak" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+        message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
       });
     }
 
@@ -3408,10 +3409,21 @@ impl McpServer {
           "screen_min_height": config.screen_min_height,
         })
       }
+      "cloak" => {
+        let config = profile.cloak_config.as_ref().cloned().unwrap_or_default();
+        serde_json::json!({
+          "browser": "cloak",
+          "fingerprint_seed": config.fingerprint_seed,
+          "os": config.os,
+          "randomize_fingerprint_on_launch": config.randomize_fingerprint_on_launch,
+          "geoip": config.geoip,
+          "humanize": config.humanize,
+        })
+      }
       _ => {
         return Err(McpError {
           code: -32000,
-          message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+          message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
         })
       }
     };
@@ -3513,10 +3525,32 @@ impl McpServer {
             message: format!("Failed to update wayfern config: {e}"),
           })?;
       }
+      "cloak" => {
+        let mut config = profile.cloak_config.as_ref().cloned().unwrap_or_default();
+        if let Some(fp) = fingerprint {
+          // Cloak takes a numeric seed; accept a numeric string, ignore otherwise.
+          if let Ok(seed) = fp.parse::<u32>() {
+            config.fingerprint_seed = Some(seed);
+          }
+        }
+        if let Some(os_val) = os {
+          config.os = Some(os_val.to_string());
+        }
+        if let Some(r) = randomize {
+          config.randomize_fingerprint_on_launch = Some(r);
+        }
+        ProfileManager::instance()
+          .update_cloak_config(app_handle.clone(), profile_id, config)
+          .await
+          .map_err(|e| McpError {
+            code: -32000,
+            message: format!("Failed to update cloak config: {e}"),
+          })?;
+      }
       _ => {
         return Err(McpError {
           code: -32000,
-          message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+          message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
         })
       }
     }
@@ -3790,6 +3824,13 @@ impl McpServer {
         crate::camoufox_manager::CamoufoxManager::instance()
           .get_cdp_port(&profile_path_str)
           .await
+      } else if profile.browser == "cloak" {
+        // Cloak instances are keyed by effective path (ephemeral-aware).
+        let effective = crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
+        crate::cloak_manager::CloakManager::instance()
+          .find_cloak_by_profile(&effective.to_string_lossy())
+          .await
+          .and_then(|r| r.cdp_port)
       } else {
         None
       };
@@ -4188,10 +4229,10 @@ impl McpServer {
         message: format!("Profile not found: {profile_id}"),
       })?;
 
-    if profile.browser != "wayfern" && profile.browser != "camoufox" {
+    if profile.browser != "wayfern" && profile.browser != "camoufox" && profile.browser != "cloak" {
       return Err(McpError {
         code: -32000,
-        message: "MCP only supports Wayfern and Camoufox profiles".to_string(),
+        message: "MCP only supports Wayfern, Camoufox, and Cloak profiles".to_string(),
       });
     }
 
