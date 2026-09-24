@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
-import { LuCheck, LuChevronsUpDown, LuLoaderCircle } from "react-icons/lu";
+import { LuCheck, LuChevronsUpDown } from "react-icons/lu";
 import { CloakConfigForm } from "@/components/cloak-config-form";
 import { LoadingButton } from "@/components/loading-button";
 import { ProxyFormDialog } from "@/components/proxy-form-dialog";
@@ -48,31 +48,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { WayfernConfigForm } from "@/components/wayfern-config-form";
 import { useBrowserDownload } from "@/hooks/use-browser-download";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
-import { getBrowserIcon } from "@/lib/browser-utils";
 import { cn } from "@/lib/utils";
-import type {
-  BrowserReleaseTypes,
-  CloakConfig,
-  WayfernConfig,
-  WayfernOS,
-} from "@/types";
-
-const getCurrentOS = (): WayfernOS => {
-  if (typeof navigator === "undefined") return "linux";
-  const platform = navigator.platform.toLowerCase();
-  if (platform.includes("win")) return "windows";
-  if (platform.includes("mac")) return "macos";
-  return "linux";
-};
+import type { BrowserReleaseTypes, CloakConfig } from "@/types";
 
 import { RippleButton } from "./ui/ripple";
 
-type BrowserTypeString = "camoufox" | "wayfern" | "cloak";
+type BrowserTypeString = "cloak";
 
 interface CreateProfileDialogProps {
   isOpen: boolean;
@@ -84,7 +68,6 @@ interface CreateProfileDialogProps {
     releaseType: string;
     proxyId?: string;
     vpnId?: string;
-    wayfernConfig?: WayfernConfig;
     cloakConfig?: CloakConfig;
     groupId?: string;
     extensionGroupId?: string;
@@ -96,55 +79,21 @@ interface CreateProfileDialogProps {
     password?: string;
   }) => Promise<void>;
   selectedGroupId?: string;
-  crossOsUnlocked?: boolean;
 }
-
-interface BrowserOption {
-  value: BrowserTypeString;
-  label: string;
-}
-
-const browserOptions: BrowserOption[] = [
-  {
-    value: "wayfern",
-    label: "Wayfern",
-  },
-  {
-    value: "cloak",
-    label: "CloakBrowser",
-  },
-];
 
 export function CreateProfileDialog({
   isOpen,
   onClose,
   onCreateProfile,
   selectedGroupId,
-  crossOsUnlocked = false,
 }: CreateProfileDialogProps) {
   const { t } = useTranslation();
   const proxyListboxIdAntiDetect = useId();
-  const proxyListboxIdRegular = useId();
   const [profileName, setProfileName] = useState("");
-  // Camoufox is deprecated: only Wayfern profiles can be created, so the dialog
-  // opens straight into the Wayfern config step (no browser-selection screen).
-  const [currentStep, setCurrentStep] = useState<
-    "browser-selection" | "browser-config"
-  >("browser-config");
-  const [activeTab, setActiveTab] = useState("anti-detect");
-
-  // Browser selection states. Defaults to Wayfern — the only creatable browser.
-  const [selectedBrowser, setSelectedBrowser] =
-    useState<BrowserTypeString>("wayfern");
   const [selectedProxyId, setSelectedProxyId] = useState<string>();
   const [proxyPopoverOpen, setProxyPopoverOpen] = useState(false);
   const [dnsBlocklist, setDnsBlocklist] = useState<string>("");
   const [launchHook, setLaunchHook] = useState("");
-
-  // Wayfern anti-detect states
-  const [wayfernConfig, setWayfernConfig] = useState<WayfernConfig>(() => ({
-    os: getCurrentOS(), // Default to current OS
-  }));
 
   // CloakBrowser anti-detect states
   const [cloakConfig, setCloakConfig] = useState<CloakConfig>({
@@ -156,32 +105,8 @@ export function CreateProfileDialog({
     setCloakConfig((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Handle browser selection from the initial screen
-  const handleBrowserSelect = (browser: BrowserTypeString) => {
-    setSelectedBrowser(browser);
-    setCurrentStep("browser-config");
-  };
+  // Reset is folded into handleClose (Cloak is the only browser).
 
-  // Reset the form fields without leaving the Wayfern config step — Camoufox is
-  // deprecated, so there is no browser-selection screen to go back to.
-  const resetForm = () => {
-    setSelectedBrowser("wayfern");
-    setProfileName("");
-    setSelectedProxyId(undefined);
-    setLaunchHook("");
-  };
-
-  // Handle back button
-  const handleBack = () => {
-    resetForm();
-  };
-
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    resetForm();
-  };
-
-  const [supportedBrowsers, setSupportedBrowsers] = useState<string[]>([]);
   const { storedProxies } = useProxyEvents();
   const { vpnConfigs } = useVpnEvents();
   const [showProxyForm, setShowProxyForm] = useState(false);
@@ -259,7 +184,7 @@ export function CreateProfileDialog({
   }, [isOpen]);
   const [releaseTypes, setReleaseTypes] = useState<BrowserReleaseTypes>();
   const [isLoadingReleaseTypes, setIsLoadingReleaseTypes] = useState(false);
-  const [releaseTypesError, setReleaseTypesError] = useState<string | null>(
+  const [_releaseTypesError, setReleaseTypesError] = useState<string | null>(
     null,
   );
   const loadingBrowserRef = useRef<string | null>(null);
@@ -269,32 +194,8 @@ export function CreateProfileDialog({
     isBrowserDownloading,
     downloadBrowser,
     loadDownloadedVersions,
-    isVersionDownloaded,
     downloadedVersionsMap,
   } = useBrowserDownload();
-
-  const loadSupportedBrowsers = useCallback(async () => {
-    try {
-      const browsers = await invoke<string[]>("get_supported_browsers");
-      setSupportedBrowsers(browsers);
-    } catch (error) {
-      console.error("Failed to load supported browsers:", error);
-    }
-  }, []);
-
-  const checkAndDownloadGeoIPDatabase = useCallback(async () => {
-    try {
-      const isAvailable = await invoke<boolean>("is_geoip_database_available");
-      if (!isAvailable) {
-        console.log("GeoIP database not available, downloading...");
-        await invoke("download_geoip_database");
-        console.log("GeoIP database downloaded successfully");
-      }
-    } catch (error) {
-      console.error("Failed to check/download GeoIP database:", error);
-      // Don't show error to user as this is not critical for profile creation
-    }
-  }, []);
 
   const loadReleaseTypes = useCallback(
     async (browser: string) => {
@@ -358,77 +259,42 @@ export function CreateProfileDialog({
     [loadDownloadedVersions],
   );
 
-  // Load data when dialog opens
+  // Load data when dialog opens (Cloak only)
   useEffect(() => {
     if (isOpen) {
-      void loadSupportedBrowsers();
-      // Load downloaded versions up front so the availability gate is
-      // accurate for both creatable engines.
-      void loadDownloadedVersions("wayfern");
       void loadDownloadedVersions("cloak");
-      // Load release types when a browser is selected
-      if (selectedBrowser) {
-        void loadReleaseTypes(selectedBrowser);
-      }
-      // Wayfern needs the GeoIP database for fingerprint generation.
-      if (selectedBrowser === "wayfern") {
-        void checkAndDownloadGeoIPDatabase();
-      }
+      void loadReleaseTypes("cloak");
     }
-  }, [
-    isOpen,
-    loadSupportedBrowsers,
-    loadReleaseTypes,
-    loadDownloadedVersions,
-    checkAndDownloadGeoIPDatabase,
-    selectedBrowser,
-  ]);
-
-  // Load release types when browser selection changes
-  useEffect(() => {
-    if (selectedBrowser) {
-      // Cancel any previous loading
-      loadingBrowserRef.current = null;
-      // Clear previous release types immediately to prevent showing stale data
-      setReleaseTypes({});
-      void loadReleaseTypes(selectedBrowser);
-    }
-  }, [selectedBrowser, loadReleaseTypes]);
+  }, [isOpen, loadReleaseTypes, loadDownloadedVersions]);
 
   // Helper function to get the best available version respecting rules
-  const getBestAvailableVersion = useCallback(
-    (_browserType?: string) => {
-      if (!releaseTypes) return null;
+  const getBestAvailableVersion = useCallback(() => {
+    if (!releaseTypes) return null;
 
-      if (releaseTypes.stable) {
-        return { version: releaseTypes.stable, releaseType: "stable" as const };
-      }
-      return null;
-    },
-    [releaseTypes],
-  );
+    if (releaseTypes.stable) {
+      return { version: releaseTypes.stable, releaseType: "stable" as const };
+    }
+    return null;
+  }, [releaseTypes]);
 
-  const getCreatableVersion = useCallback(
-    (browserType?: string) => {
-      const bestVersion = getBestAvailableVersion(browserType);
-      const browserDownloaded = downloadedVersionsMap[browserType ?? ""] ?? [];
-      if (bestVersion && browserDownloaded.includes(bestVersion.version)) {
-        return bestVersion;
-      }
-      if (browserDownloaded.length > 0) {
-        const fallbackVersion = browserDownloaded[0];
-        return {
-          version: fallbackVersion,
-          releaseType: "stable" as const,
-        };
-      }
-      return null;
-    },
-    [getBestAvailableVersion, downloadedVersionsMap],
-  );
+  const getCreatableVersion = useCallback(() => {
+    const bestVersion = getBestAvailableVersion();
+    const browserDownloaded = downloadedVersionsMap.cloak ?? [];
+    if (bestVersion && browserDownloaded.includes(bestVersion.version)) {
+      return bestVersion;
+    }
+    if (browserDownloaded.length > 0) {
+      const fallbackVersion = browserDownloaded[0];
+      return {
+        version: fallbackVersion,
+        releaseType: "stable" as const,
+      };
+    }
+    return null;
+  }, [getBestAvailableVersion, downloadedVersionsMap]);
 
-  const handleDownload = async (browserStr: string) => {
-    const bestVersion = getBestAvailableVersion(browserStr);
+  const handleDownload = async () => {
+    const bestVersion = getBestAvailableVersion();
 
     if (!bestVersion) {
       console.error("No version available for download");
@@ -436,7 +302,7 @@ export function CreateProfileDialog({
     }
 
     try {
-      await downloadBrowser(browserStr, bestVersion.version);
+      await downloadBrowser("cloak", bestVersion.version);
     } catch (error) {
       console.error("Failed to download browser:", error);
     }
@@ -471,85 +337,49 @@ export function CreateProfileDialog({
         ? password
         : undefined;
     try {
-      if (activeTab === "anti-detect") {
-        // Camoufox is deprecated — only Wayfern and CloakBrowser anti-detect profiles are created.
-        const activeBrowser = selectedBrowser === "cloak" ? "cloak" : "wayfern";
-        let bestVersion = getCreatableVersion(activeBrowser);
-        if (!bestVersion) {
-          // Auto-install like Wayfern first-run setup: download the best
-          // available version on demand instead of leaving Create disabled.
-          const toDownload = getBestAvailableVersion(activeBrowser);
-          if (!toDownload) {
-            console.error(`No ${activeBrowser} version available`);
-            return;
-          }
-          try {
-            await downloadBrowser(activeBrowser, toDownload.version);
-          } catch (e) {
-            console.error(`Failed to auto-install ${activeBrowser}:`, e);
-            return;
-          }
-          bestVersion = getCreatableVersion(activeBrowser) ?? toDownload;
-          if (!bestVersion) {
-            console.error(
-              `No ${activeBrowser} version available after download`,
-            );
-            return;
-          }
-        }
-
-        await onCreateProfile({
-          name: profileName.trim(),
-          browserStr: activeBrowser as BrowserTypeString,
-          version: bestVersion.version,
-          releaseType: bestVersion.releaseType,
-          proxyId: resolvedProxyId,
-          vpnId: resolvedVpnId,
-          wayfernConfig:
-            activeBrowser === "wayfern" ? { ...wayfernConfig } : undefined,
-          cloakConfig:
-            activeBrowser === "cloak" ? { ...cloakConfig } : undefined,
-          groupId:
-            selectedGroupId && selectedGroupId !== "__all__"
-              ? selectedGroupId
-              : undefined,
-          extensionGroupId: selectedExtensionGroupId,
-          extensionIds: selectedExtensionIds,
-          randomExtension,
-          ephemeral,
-          dnsBlocklist: dnsBlocklist || undefined,
-          launchHook: launchHook.trim() || undefined,
-          password: passwordToSet,
-        });
-      } else {
-        // Regular browser
-        if (!selectedBrowser) {
-          console.error("Missing required browser selection");
+      // Cloak is the only creatable browser.
+      const activeBrowser: BrowserTypeString = "cloak";
+      let bestVersion = getCreatableVersion();
+      if (!bestVersion) {
+        // Auto-install on demand instead of leaving Create disabled.
+        const toDownload = getBestAvailableVersion();
+        if (!toDownload) {
+          console.error(`No ${activeBrowser} version available`);
           return;
         }
-
-        // Use the best available version (stable preferred, nightly as fallback)
-        const bestVersion = getCreatableVersion(selectedBrowser);
-        if (!bestVersion) {
-          console.error("No version available");
+        try {
+          await downloadBrowser(activeBrowser, toDownload.version);
+        } catch (e) {
+          console.error(`Failed to auto-install ${activeBrowser}:`, e);
           return;
         }
-
-        await onCreateProfile({
-          name: profileName.trim(),
-          browserStr: selectedBrowser,
-          version: bestVersion.version,
-          releaseType: bestVersion.releaseType,
-          proxyId: selectedProxyId,
-          groupId:
-            selectedGroupId && selectedGroupId !== "__all__"
-              ? selectedGroupId
-              : undefined,
-          dnsBlocklist: dnsBlocklist || undefined,
-          launchHook: launchHook.trim() || undefined,
-          password: passwordToSet,
-        });
+        bestVersion = getCreatableVersion() ?? toDownload;
+        if (!bestVersion) {
+          console.error(`No ${activeBrowser} version available after download`);
+          return;
+        }
       }
+
+      await onCreateProfile({
+        name: profileName.trim(),
+        browserStr: activeBrowser,
+        version: bestVersion.version,
+        releaseType: bestVersion.releaseType,
+        proxyId: resolvedProxyId,
+        vpnId: resolvedVpnId,
+        cloakConfig: { ...cloakConfig },
+        groupId:
+          selectedGroupId && selectedGroupId !== "__all__"
+            ? selectedGroupId
+            : undefined,
+        extensionGroupId: selectedExtensionGroupId,
+        extensionIds: selectedExtensionIds,
+        randomExtension,
+        ephemeral,
+        dnsBlocklist: dnsBlocklist || undefined,
+        launchHook: launchHook.trim() || undefined,
+        password: passwordToSet,
+      });
 
       handleClose();
     } catch (error) {
@@ -563,20 +393,12 @@ export function CreateProfileDialog({
     // Cancel any ongoing loading
     loadingBrowserRef.current = null;
 
-    // Reset all states. Stay on the Wayfern config step — Camoufox is
-    // deprecated, so the browser-selection screen is gone.
     setProfileName("");
-    setCurrentStep("browser-config");
-    setActiveTab("anti-detect");
-    setSelectedBrowser("wayfern");
     setSelectedProxyId(undefined);
     setLaunchHook("");
     setReleaseTypes({});
     setIsLoadingReleaseTypes(false);
     setReleaseTypesError(null);
-    setWayfernConfig({
-      os: getCurrentOS(), // Reset to current OS
-    });
     setEphemeral(false);
     setSelectedExtensionGroupId(undefined);
     setSelectedExtensionIds([]);
@@ -588,1313 +410,567 @@ export function CreateProfileDialog({
     onClose();
   };
 
-  const updateWayfernConfig = (key: keyof WayfernConfig, value: unknown) => {
-    setWayfernConfig((prev) => ({ ...prev, [key]: value }));
-  };
-
-  // Check if browser version is downloaded and available
-  const isBrowserVersionAvailable = useCallback(
-    (browserStr: string) => {
-      const bestVersion = getBestAvailableVersion(browserStr);
-      return bestVersion && isVersionDownloaded(bestVersion.version);
-    },
-    [isVersionDownloaded, getBestAvailableVersion],
-  );
-
-  // Check if browser is currently downloading
-  const isBrowserCurrentlyDownloading = useCallback(
-    (browserStr: string) => {
-      return isBrowserDownloading(browserStr);
-    },
-    [isBrowserDownloading],
-  );
+  // Check if Cloak is currently downloading
+  const isCloakDownloading = isBrowserDownloading("cloak");
 
   const isCreateDisabled = useMemo(() => {
     if (!profileName.trim()) return true;
-    if (!selectedBrowser) return true;
-    if (isBrowserCurrentlyDownloading(selectedBrowser)) return true;
+    if (isCloakDownloading) return true;
     if (isCreating) return true;
     // Allow Create when a best version exists even if not yet downloaded —
     // handleCreate auto-installs it on demand.
-    if (!getBestAvailableVersion(selectedBrowser)) {
-      if (!getCreatableVersion(selectedBrowser)) return true;
+    if (!getBestAvailableVersion()) {
+      if (!getCreatableVersion()) return true;
     }
 
     return false;
   }, [
     profileName,
-    selectedBrowser,
-    isBrowserCurrentlyDownloading,
+    isCloakDownloading,
     getCreatableVersion,
     getBestAvailableVersion,
     isCreating,
   ]);
-
-  // Filter supported browsers for regular browsers
-  const regularBrowsers = browserOptions.filter((browser) =>
-    supportedBrowsers.includes(browser.value),
-  );
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="flex max-h-[90vh] max-w-[min(48rem,calc(100%-4rem))] flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle>
-            {currentStep === "browser-selection"
-              ? t("createProfile.title")
-              : t("createProfile.configureTitle", {
-                  browser:
-                    selectedBrowser === "wayfern"
-                      ? t("createProfile.chromiumLabel")
-                      : t("createProfile.firefoxLabel"),
-                })}
+            {t("createProfile.configureTitle", {
+              browser: "CloakBrowser",
+            })}
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={handleTabChange}
-          className="flex min-h-0 w-full flex-1 flex-col"
-        >
-          {/* Tab list hidden - only anti-detect browsers are supported */}
-
+        <div className="flex min-h-0 w-full flex-1 flex-col">
           <ScrollArea className="flex-1 overflow-y-auto">
             <div className="flex w-full flex-col items-center justify-center">
               <div className="w-full space-y-6 py-4">
-                {currentStep === "browser-selection" ? (
-                  <>
-                    <TabsContent value="anti-detect" className="mt-0 space-y-6">
-                      {/* Anti-Detect Browser Selection */}
-                      <div className="space-y-3 pt-8">
-                        {/* Wayfern (Chromium) - First */}
-                        <Button
-                          onClick={() => {
-                            handleBrowserSelect("wayfern");
+                <div className="mt-0">
+                  <div className="space-y-6">
+                    {/* Profile Name */}
+                    <div className="space-y-2">
+                      <Label htmlFor="profile-name">
+                        {t("createProfile.profileName")}
+                      </Label>
+                      <Input
+                        id="profile-name"
+                        value={profileName}
+                        onChange={(e) => {
+                          setProfileName(e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "Enter" &&
+                            !isCreateDisabled &&
+                            !isCreating
+                          ) {
+                            void handleCreate();
+                          }
+                        }}
+                        placeholder={t("createProfile.profileNamePlaceholder")}
+                      />
+                    </div>
+                    {/* Ephemeral Option */}
+                    <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                      <div className="flex items-center gap-x-2">
+                        <Checkbox
+                          id="ephemeral"
+                          checked={ephemeral}
+                          onCheckedChange={(checked) => {
+                            setEphemeral(checked === true);
                           }}
-                          disabled={!getCreatableVersion("wayfern")}
-                          className="flex h-16 w-full items-center justify-start gap-3 border-2 p-4 transition-colors hover:border-primary/50"
-                          variant="outline"
-                        >
-                          <div className="flex size-8 items-center justify-center">
-                            {isBrowserCurrentlyDownloading("wayfern") ? (
-                              <LuLoaderCircle className="size-6 animate-spin" />
-                            ) : (
-                              (() => {
-                                const IconComponent = getBrowserIcon("wayfern");
-                                return IconComponent ? (
-                                  <IconComponent className="size-6" />
-                                ) : null;
-                              })()
+                        />
+                        <Label htmlFor="ephemeral" className="font-medium">
+                          {t("profiles.ephemeral")}
+                        </Label>
+                      </div>
+                      <p className="ml-6 text-sm text-muted-foreground">
+                        {t("profiles.ephemeralDescription")}
+                      </p>
+                    </div>
+                    {/* Password Option */}
+                    {!ephemeral && (
+                      <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                        <div className="flex items-center gap-x-2">
+                          <Checkbox
+                            id="enable-password"
+                            checked={enablePassword}
+                            onCheckedChange={(checked) => {
+                              setEnablePassword(checked === true);
+                              if (checked !== true) {
+                                setPassword("");
+                                setPasswordConfirm("");
+                                setPasswordError(null);
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor="enable-password"
+                            className="font-medium"
+                          >
+                            {t("createProfile.passwordProtect.label")}
+                          </Label>
+                        </div>
+                        <p className="ml-6 text-sm text-muted-foreground">
+                          {t("createProfile.passwordProtect.description")}
+                        </p>
+                        {enablePassword && (
+                          <div className="ml-6 space-y-2">
+                            <Input
+                              type="password"
+                              value={password}
+                              onChange={(e) => {
+                                setPassword(e.target.value);
+                                setPasswordError(null);
+                              }}
+                              placeholder={t(
+                                "profilePassword.fields.newPassword",
+                              )}
+                              autoComplete="new-password"
+                            />
+                            <Input
+                              type="password"
+                              value={passwordConfirm}
+                              onChange={(e) => {
+                                setPasswordConfirm(e.target.value);
+                                setPasswordError(null);
+                              }}
+                              placeholder={t("profilePassword.fields.confirm")}
+                              autoComplete="new-password"
+                            />
+                            {passwordError && (
+                              <p className="text-sm text-destructive">
+                                {passwordError}
+                              </p>
                             )}
                           </div>
-                          <div className="text-left">
-                            <div className="font-medium">
-                              {t("createProfile.chromiumLabel")}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {isBrowserCurrentlyDownloading("wayfern")
-                                ? t("createProfile.downloadingSubtitle")
-                                : t("createProfile.chromiumSubtitle")}
-                            </div>
-                          </div>
-                        </Button>
-
-                        {/* Camoufox is deprecated — no longer offered for new
-                            profiles. Only Wayfern can be created. */}
-
-                        {!getCreatableVersion("wayfern") && (
-                          <p className="pt-2 text-center text-sm text-muted-foreground">
-                            {t("createProfile.browsersDownloading")}
-                          </p>
                         )}
                       </div>
-                    </TabsContent>
-
-                    <TabsContent value="regular" className="mt-0 space-y-6">
-                      {/* Regular Browser Selection */}
-                      <div className="space-y-6">
-                        <div className="text-center">
-                          <h3 className="text-lg font-medium">
-                            {t("createProfile.regular.title")}
-                          </h3>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {t("createProfile.regular.description")}
+                    )}
+                    <div className="space-y-6">
+                      {isLoadingReleaseTypes && (
+                        <div className="flex items-center gap-3 rounded-md border p-3">
+                          <div className="size-4 animate-spin rounded-full border-2 border-muted/40 border-t-primary" />
+                          <p className="text-sm text-muted-foreground">
+                            {t("createProfile.version.fetching")}
                           </p>
                         </div>
-
-                        <div className="space-y-3">
-                          {regularBrowsers.map((browser) => {
-                            if (browser.value === "camoufox") return null; // Skip camoufox as it's handled in anti-detect tab
-                            const IconComponent = getBrowserIcon(browser.value);
-                            return (
-                              <Button
-                                key={browser.value}
-                                onClick={() => {
-                                  handleBrowserSelect(browser.value);
-                                }}
-                                className="flex h-16 w-full items-center justify-start gap-3 border-2 p-4 transition-colors hover:border-primary/50"
-                                variant="outline"
-                              >
-                                <div className="flex size-8 items-center justify-center">
-                                  {IconComponent && (
-                                    <IconComponent className="size-6" />
-                                  )}
-                                </div>
-                                <div className="text-left">
-                                  <div className="font-medium">
-                                    {browser.label}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {t("createProfile.regular.badge")}
-                                  </div>
-                                </div>
-                              </Button>
-                            );
+                      )}
+                      {!isLoadingReleaseTypes &&
+                        !isCloakDownloading &&
+                        !getCreatableVersion() &&
+                        getBestAvailableVersion() && (
+                          <div className="flex items-center gap-3">
+                            <p className="flex-1 text-sm text-muted-foreground">
+                              {t("createProfile.version.notDownloaded", {
+                                browser: "CloakBrowser",
+                              })}
+                            </p>
+                            <LoadingButton
+                              isLoading={isCloakDownloading}
+                              size="sm"
+                              onClick={() => handleDownload()}
+                            >
+                              {t("createProfile.actions.download")}
+                            </LoadingButton>
+                          </div>
+                        )}
+                      {isCloakDownloading && (
+                        <div className="rounded-md border p-3 text-sm text-muted-foreground">
+                          {t("createProfile.version.downloading", {
+                            browser: "CloakBrowser",
+                            version: getBestAvailableVersion()?.version,
                           })}
                         </div>
+                      )}
+                      <CloakConfigForm
+                        config={cloakConfig}
+                        onConfigChange={updateCloakConfig}
+                      />
+                    </div>
+                    {/* Proxy / VPN Selection - Always visible */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>{t("createProfile.proxy.title")}</Label>
+                        <RippleButton
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setShowProxyForm(true);
+                          }}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <GoPlus className="mr-1 size-3" />{" "}
+                          {t("createProfile.proxy.addProxy")}
+                        </RippleButton>
                       </div>
-                    </TabsContent>
-                  </>
-                ) : (
-                  <>
-                    <TabsContent value="anti-detect" className="mt-0">
-                      {/* Anti-Detect Configuration */}
-                      <div className="space-y-6">
-                        {/* Engine selector */}
-                        <div className="space-y-2">
-                          <Label>
-                            {t("createProfile.browserEngine", "Browser Engine")}
-                          </Label>
-                          <div className="flex gap-2">
-                            {browserOptions.map((opt) => (
-                              <Button
-                                key={opt.value}
-                                variant={
-                                  selectedBrowser === opt.value
-                                    ? "default"
-                                    : "outline"
-                                }
-                                size="sm"
-                                onClick={() =>
-                                  setSelectedBrowser(
-                                    opt.value as BrowserTypeString,
-                                  )
-                                }
-                              >
-                                {opt.label}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Profile Name */}
-                        <div className="space-y-2">
-                          <Label htmlFor="profile-name">
-                            {t("createProfile.profileName")}
-                          </Label>
-                          <Input
-                            id="profile-name"
-                            value={profileName}
-                            onChange={(e) => {
-                              setProfileName(e.target.value);
-                            }}
-                            onKeyDown={(e) => {
-                              if (
-                                e.key === "Enter" &&
-                                !isCreateDisabled &&
-                                !isCreating
-                              ) {
-                                void handleCreate();
-                              }
-                            }}
-                            placeholder={t(
-                              "createProfile.profileNamePlaceholder",
-                            )}
-                          />
-                        </div>
-
-                        {/* Ephemeral Option */}
-                        <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-                          <div className="flex items-center gap-x-2">
-                            <Checkbox
-                              id="ephemeral"
-                              checked={ephemeral}
-                              onCheckedChange={(checked) => {
-                                setEphemeral(checked === true);
-                              }}
-                            />
-                            <Label htmlFor="ephemeral" className="font-medium">
-                              {t("profiles.ephemeral")}
-                            </Label>
-                          </div>
-                          <p className="ml-6 text-sm text-muted-foreground">
-                            {t("profiles.ephemeralDescription")}
-                          </p>
-                        </div>
-
-                        {/* Password Option */}
-                        {!ephemeral && (
-                          <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-                            <div className="flex items-center gap-x-2">
-                              <Checkbox
-                                id="enable-password"
-                                checked={enablePassword}
-                                onCheckedChange={(checked) => {
-                                  setEnablePassword(checked === true);
-                                  if (checked !== true) {
-                                    setPassword("");
-                                    setPasswordConfirm("");
-                                    setPasswordError(null);
-                                  }
-                                }}
-                              />
-                              <Label
-                                htmlFor="enable-password"
-                                className="font-medium"
-                              >
-                                {t("createProfile.passwordProtect.label")}
-                              </Label>
-                            </div>
-                            <p className="ml-6 text-sm text-muted-foreground">
-                              {t("createProfile.passwordProtect.description")}
-                            </p>
-                            {enablePassword && (
-                              <div className="ml-6 space-y-2">
-                                <Input
-                                  type="password"
-                                  value={password}
-                                  onChange={(e) => {
-                                    setPassword(e.target.value);
-                                    setPasswordError(null);
-                                  }}
-                                  placeholder={t(
-                                    "profilePassword.fields.newPassword",
-                                  )}
-                                  autoComplete="new-password"
-                                />
-                                <Input
-                                  type="password"
-                                  value={passwordConfirm}
-                                  onChange={(e) => {
-                                    setPasswordConfirm(e.target.value);
-                                    setPasswordError(null);
-                                  }}
-                                  placeholder={t(
-                                    "profilePassword.fields.confirm",
-                                  )}
-                                  autoComplete="new-password"
-                                />
-                                {passwordError && (
-                                  <p className="text-sm text-destructive">
-                                    {passwordError}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {selectedBrowser === "wayfern" ? (
-                          // Wayfern Configuration
-                          <div className="space-y-6">
-                            {/* Wayfern Download Status */}
-                            {isLoadingReleaseTypes && (
-                              <div className="flex items-center gap-3 rounded-md border p-3">
-                                <div className="size-4 animate-spin rounded-full border-2 border-muted/40 border-t-primary" />
-                                <p className="text-sm text-muted-foreground">
-                                  {t("createProfile.version.fetching")}
-                                </p>
-                              </div>
-                            )}
-                            {!isLoadingReleaseTypes && releaseTypesError && (
-                              <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3">
-                                <p className="flex-1 text-sm text-destructive">
-                                  {releaseTypesError}
-                                </p>
-                                <RippleButton
-                                  onClick={() =>
-                                    selectedBrowser &&
-                                    loadReleaseTypes(selectedBrowser)
-                                  }
-                                  size="sm"
-                                  variant="outline"
-                                >
-                                  {t("common.buttons.retry")}
-                                </RippleButton>
-                              </div>
-                            )}
-                            {!isLoadingReleaseTypes &&
-                              !releaseTypesError &&
-                              !getBestAvailableVersion("wayfern") && (
-                                <div className="flex items-center gap-3 rounded-md border border-warning/50 bg-warning/10 p-3">
-                                  <p className="text-sm text-warning">
-                                    {t("createProfile.platformUnavailable", {
-                                      browser: "Wayfern",
-                                    })}
-                                  </p>
-                                </div>
-                              )}
-                            {!isLoadingReleaseTypes &&
-                              !releaseTypesError &&
-                              !isBrowserCurrentlyDownloading("wayfern") &&
-                              !getCreatableVersion("wayfern") &&
-                              getBestAvailableVersion("wayfern") && (
-                                <div className="flex items-center gap-3 rounded-md border p-3">
-                                  <p className="text-sm text-muted-foreground">
-                                    {t("createProfile.version.needsDownload", {
-                                      browser: "Wayfern",
-                                      version:
-                                        getBestAvailableVersion("wayfern")
-                                          ?.version,
-                                    })}
-                                  </p>
-                                  <LoadingButton
-                                    onClick={() => {
-                                      void handleDownload("wayfern");
-                                    }}
-                                    isLoading={isBrowserCurrentlyDownloading(
-                                      "wayfern",
-                                    )}
-                                    size="sm"
-                                    disabled={isBrowserCurrentlyDownloading(
-                                      "wayfern",
-                                    )}
-                                  >
-                                    {isBrowserCurrentlyDownloading("wayfern")
-                                      ? t("common.buttons.downloading")
-                                      : t("common.buttons.download")}
-                                  </LoadingButton>
-                                </div>
-                              )}
-                            {!isLoadingReleaseTypes &&
-                              !releaseTypesError &&
-                              !isBrowserCurrentlyDownloading("wayfern") &&
-                              getCreatableVersion("wayfern") && (
-                                <div className="rounded-md border p-3 text-sm text-muted-foreground">
-                                  ✓{" "}
-                                  {t("createProfile.version.available", {
-                                    browser: "Wayfern",
-                                    version:
-                                      getCreatableVersion("wayfern")?.version,
-                                  })}
-                                </div>
-                              )}
-                            {!isLoadingReleaseTypes &&
-                              !releaseTypesError &&
-                              !isBrowserCurrentlyDownloading("wayfern") &&
-                              getCreatableVersion("wayfern") &&
-                              !isBrowserVersionAvailable("wayfern") &&
-                              getBestAvailableVersion("wayfern") && (
-                                <div className="flex items-center gap-3 rounded-md border p-3">
-                                  <p className="flex-1 text-sm text-muted-foreground">
-                                    {t(
-                                      "createProfile.version.upgradeAvailable",
-                                      {
-                                        browser: "Wayfern",
-                                        version:
-                                          getBestAvailableVersion("wayfern")
-                                            ?.version,
-                                      },
-                                    )}
-                                  </p>
-                                  <LoadingButton
-                                    onClick={() => {
-                                      void handleDownload("wayfern");
-                                    }}
-                                    isLoading={isBrowserCurrentlyDownloading(
-                                      "wayfern",
-                                    )}
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={isBrowserCurrentlyDownloading(
-                                      "wayfern",
-                                    )}
-                                  >
-                                    {isBrowserCurrentlyDownloading("wayfern")
-                                      ? t("common.buttons.downloading")
-                                      : t("common.buttons.download")}
-                                  </LoadingButton>
-                                </div>
-                              )}
-                            {isBrowserCurrentlyDownloading("wayfern") && (
-                              <div className="rounded-md border p-3 text-sm text-muted-foreground">
-                                {t("createProfile.version.downloading", {
-                                  browser: "Wayfern",
-                                  version:
-                                    getBestAvailableVersion("wayfern")?.version,
-                                })}
-                              </div>
-                            )}
-
-                            <WayfernConfigForm
-                              config={wayfernConfig}
-                              onConfigChange={updateWayfernConfig}
-                              isCreating
-                              crossOsUnlocked={crossOsUnlocked}
-                              limitedMode={false}
-                              profileVersion={
-                                getCreatableVersion("wayfern")?.version
-                              }
-                              profileBrowser="wayfern"
-                            />
-                          </div>
-                        ) : selectedBrowser === "cloak" ? (
-                          // CloakBrowser Configuration
-                          <div className="space-y-6">
-                            {isLoadingReleaseTypes && (
-                              <div className="flex items-center gap-3 rounded-md border p-3">
-                                <div className="size-4 animate-spin rounded-full border-2 border-muted/40 border-t-primary" />
-                                <p className="text-sm text-muted-foreground">
-                                  {t("createProfile.version.fetching")}
-                                </p>
-                              </div>
-                            )}
-                            {!isLoadingReleaseTypes &&
-                              !isBrowserCurrentlyDownloading("cloak") &&
-                              !getCreatableVersion("cloak") &&
-                              getBestAvailableVersion("cloak") && (
-                                <div className="flex items-center gap-3">
-                                  <p className="flex-1 text-sm text-muted-foreground">
-                                    {t("createProfile.version.notDownloaded", {
-                                      browser: "CloakBrowser",
-                                    })}
-                                  </p>
-                                  <LoadingButton
-                                    isLoading={isBrowserDownloading("cloak")}
-                                    size="sm"
-                                    onClick={() => handleDownload("cloak")}
-                                  >
-                                    {t("createProfile.actions.download")}
-                                  </LoadingButton>
-                                </div>
-                              )}
-                            {isBrowserCurrentlyDownloading("cloak") && (
-                              <div className="rounded-md border p-3 text-sm text-muted-foreground">
-                                {t("createProfile.version.downloading", {
-                                  browser: "CloakBrowser",
-                                  version:
-                                    getBestAvailableVersion("cloak")?.version,
-                                })}
-                              </div>
-                            )}
-                            <CloakConfigForm
-                              config={cloakConfig}
-                              onConfigChange={updateCloakConfig}
-                            />
-                          </div>
-                        ) : (
-                          // Regular Browser Configuration (should not happen in
-                          // the anti-detect tab; Camoufox creation is removed).
-                          <div className="space-y-4">
-                            {selectedBrowser && (
-                              <div className="space-y-3">
-                                {isLoadingReleaseTypes && (
-                                  <div className="flex items-center gap-3">
-                                    <div className="size-4 animate-spin rounded-full border-2 border-muted/40 border-t-primary" />
-                                    <p className="text-sm text-muted-foreground">
-                                      {t("createProfile.version.fetching")}
-                                    </p>
-                                  </div>
-                                )}
-                                {!isLoadingReleaseTypes &&
-                                  releaseTypesError && (
-                                    <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3">
-                                      <p className="flex-1 text-sm text-destructive">
-                                        {releaseTypesError}
-                                      </p>
-                                      <RippleButton
-                                        onClick={() =>
-                                          selectedBrowser &&
-                                          loadReleaseTypes(selectedBrowser)
-                                        }
-                                        size="sm"
-                                        variant="outline"
-                                      >
-                                        {t("common.buttons.retry")}
-                                      </RippleButton>
-                                    </div>
-                                  )}
-                                {!isLoadingReleaseTypes &&
-                                  !releaseTypesError &&
-                                  !isBrowserCurrentlyDownloading(
-                                    selectedBrowser,
-                                  ) &&
-                                  !getCreatableVersion(selectedBrowser) &&
-                                  getBestAvailableVersion(selectedBrowser) && (
-                                    <div className="flex items-center gap-3">
-                                      <p className="text-sm text-muted-foreground">
-                                        {t(
-                                          "createProfile.version.latestNeedsDownload",
-                                          {
-                                            version:
-                                              getBestAvailableVersion(
-                                                selectedBrowser,
-                                              )?.version,
-                                          },
-                                        )}
-                                      </p>
-                                      <LoadingButton
-                                        onClick={() => {
-                                          void handleDownload(selectedBrowser);
-                                        }}
-                                        isLoading={isBrowserCurrentlyDownloading(
-                                          selectedBrowser,
-                                        )}
-                                        className="ml-auto"
-                                        size="sm"
-                                        disabled={isBrowserCurrentlyDownloading(
-                                          selectedBrowser,
-                                        )}
-                                      >
-                                        {t("common.buttons.download")}
-                                      </LoadingButton>
-                                    </div>
-                                  )}
-                                {!isLoadingReleaseTypes &&
-                                  !releaseTypesError &&
-                                  !isBrowserCurrentlyDownloading(
-                                    selectedBrowser,
-                                  ) &&
-                                  getCreatableVersion(selectedBrowser) && (
-                                    <div className="text-sm text-muted-foreground">
-                                      ✓{" "}
-                                      {t(
-                                        "createProfile.version.latestAvailable",
-                                        {
-                                          version:
-                                            getCreatableVersion(selectedBrowser)
-                                              ?.version,
-                                        },
-                                      )}
-                                    </div>
-                                  )}
-                                {isBrowserCurrentlyDownloading(
-                                  selectedBrowser,
-                                ) && (
-                                  <div className="text-sm text-muted-foreground">
-                                    {t(
-                                      "createProfile.version.latestDownloading",
-                                      {
-                                        version:
-                                          getBestAvailableVersion(
-                                            selectedBrowser,
-                                          )?.version,
-                                      },
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Proxy / VPN Selection - Always visible */}
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <Label>{t("createProfile.proxy.title")}</Label>
-                            <RippleButton
-                              size="sm"
+                      {storedProxies.length > 0 || vpnConfigs.length > 0 ? (
+                        <Popover
+                          open={proxyPopoverOpen}
+                          onOpenChange={setProxyPopoverOpen}
+                        >
+                          <PopoverTrigger asChild>
+                            <Button
                               variant="outline"
-                              onClick={() => {
-                                setShowProxyForm(true);
-                              }}
-                              className="h-7 px-2 text-xs"
+                              role="combobox"
+                              aria-expanded={proxyPopoverOpen}
+                              aria-controls={proxyListboxIdAntiDetect}
+                              className="w-full justify-between font-normal"
                             >
-                              <GoPlus className="mr-1 size-3" />{" "}
-                              {t("createProfile.proxy.addProxy")}
-                            </RippleButton>
-                          </div>
-                          {storedProxies.length > 0 || vpnConfigs.length > 0 ? (
-                            <Popover
-                              open={proxyPopoverOpen}
-                              onOpenChange={setProxyPopoverOpen}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  role="combobox"
-                                  aria-expanded={proxyPopoverOpen}
-                                  aria-controls={proxyListboxIdAntiDetect}
-                                  className="w-full justify-between font-normal"
-                                >
-                                  {(() => {
-                                    if (!selectedProxyId)
-                                      return t("createProfile.proxy.noProxy");
-                                    if (selectedProxyId.startsWith("vpn-")) {
-                                      const vpn = vpnConfigs.find(
-                                        (v) =>
-                                          v.id === selectedProxyId.slice(4),
-                                      );
-                                      return vpn
-                                        ? `WG — ${vpn.name}`
-                                        : t("createProfile.proxy.noProxy");
-                                    }
-                                    const proxy = storedProxies.find(
-                                      (p) => p.id === selectedProxyId,
-                                    );
-                                    return (
-                                      proxy?.name ??
-                                      t("createProfile.proxy.noProxy")
-                                    );
-                                  })()}
-                                  <LuChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                id={proxyListboxIdAntiDetect}
-                                className="w-[240px] p-0"
-                                sideOffset={8}
-                              >
-                                <Command>
-                                  <CommandInput
-                                    placeholder={t(
-                                      "createProfile.proxy.search",
-                                    )}
-                                  />
-                                  <CommandList>
-                                    <CommandEmpty>
-                                      {t("createProfile.proxy.notFound")}
-                                    </CommandEmpty>
-                                    <CommandGroup>
+                              {(() => {
+                                if (!selectedProxyId)
+                                  return t("createProfile.proxy.noProxy");
+                                if (selectedProxyId.startsWith("vpn-")) {
+                                  const vpn = vpnConfigs.find(
+                                    (v) => v.id === selectedProxyId.slice(4),
+                                  );
+                                  return vpn
+                                    ? `WG — ${vpn.name}`
+                                    : t("createProfile.proxy.noProxy");
+                                }
+                                const proxy = storedProxies.find(
+                                  (p) => p.id === selectedProxyId,
+                                );
+                                return (
+                                  proxy?.name ??
+                                  t("createProfile.proxy.noProxy")
+                                );
+                              })()}
+                              <LuChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            id={proxyListboxIdAntiDetect}
+                            className="w-[240px] p-0"
+                            sideOffset={8}
+                          >
+                            <Command>
+                              <CommandInput
+                                placeholder={t("createProfile.proxy.search")}
+                              />
+                              <CommandList>
+                                <CommandEmpty>
+                                  {t("createProfile.proxy.notFound")}
+                                </CommandEmpty>
+                                <CommandGroup>
+                                  <CommandItem
+                                    value="__none__"
+                                    onSelect={() => {
+                                      setSelectedProxyId(undefined);
+                                      setProxyPopoverOpen(false);
+                                    }}
+                                  >
+                                    <LuCheck
+                                      className={cn(
+                                        "mr-2 size-4",
+                                        !selectedProxyId
+                                          ? "opacity-100"
+                                          : "opacity-0",
+                                      )}
+                                    />
+                                    {t("common.labels.none")}
+                                  </CommandItem>
+                                  {storedProxies.map((proxy) => (
+                                    <CommandItem
+                                      key={proxy.id}
+                                      value={proxy.name}
+                                      onSelect={() => {
+                                        setSelectedProxyId(proxy.id);
+                                        setProxyPopoverOpen(false);
+                                      }}
+                                    >
+                                      <LuCheck
+                                        className={cn(
+                                          "mr-2 size-4",
+                                          selectedProxyId === proxy.id
+                                            ? "opacity-100"
+                                            : "opacity-0",
+                                        )}
+                                      />
+                                      {proxy.name}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                                {vpnConfigs.length > 0 && (
+                                  <CommandGroup heading="VPNs">
+                                    {vpnConfigs.map((vpn) => (
                                       <CommandItem
-                                        value="__none__"
+                                        key={vpn.id}
+                                        value={`vpn-${vpn.name}`}
                                         onSelect={() => {
-                                          setSelectedProxyId(undefined);
+                                          setSelectedProxyId(`vpn-${vpn.id}`);
                                           setProxyPopoverOpen(false);
                                         }}
                                       >
                                         <LuCheck
                                           className={cn(
                                             "mr-2 size-4",
-                                            !selectedProxyId
+                                            selectedProxyId === `vpn-${vpn.id}`
                                               ? "opacity-100"
                                               : "opacity-0",
                                           )}
                                         />
-                                        {t("common.labels.none")}
-                                      </CommandItem>
-                                      {storedProxies.map((proxy) => (
-                                        <CommandItem
-                                          key={proxy.id}
-                                          value={proxy.name}
-                                          onSelect={() => {
-                                            setSelectedProxyId(proxy.id);
-                                            setProxyPopoverOpen(false);
-                                          }}
-                                        >
-                                          <LuCheck
-                                            className={cn(
-                                              "mr-2 size-4",
-                                              selectedProxyId === proxy.id
-                                                ? "opacity-100"
-                                                : "opacity-0",
-                                            )}
-                                          />
-                                          {proxy.name}
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
-                                    {vpnConfigs.length > 0 && (
-                                      <CommandGroup heading="VPNs">
-                                        {vpnConfigs.map((vpn) => (
-                                          <CommandItem
-                                            key={vpn.id}
-                                            value={`vpn-${vpn.name}`}
-                                            onSelect={() => {
-                                              setSelectedProxyId(
-                                                `vpn-${vpn.id}`,
-                                              );
-                                              setProxyPopoverOpen(false);
-                                            }}
-                                          >
-                                            <LuCheck
-                                              className={cn(
-                                                "mr-2 size-4",
-                                                selectedProxyId ===
-                                                  `vpn-${vpn.id}`
-                                                  ? "opacity-100"
-                                                  : "opacity-0",
-                                              )}
-                                            />
-                                            <Badge
-                                              variant="outline"
-                                              className="mr-1 px-1 py-0 text-[10px] leading-tight"
-                                            >
-                                              WG
-                                            </Badge>
-                                            {vpn.name}
-                                          </CommandItem>
-                                        ))}
-                                      </CommandGroup>
-                                    )}
-                                  </CommandList>
-                                </Command>
-                              </PopoverContent>
-                            </Popover>
-                          ) : (
-                            <div className="flex items-center gap-3 rounded-md border p-3 text-sm text-muted-foreground">
-                              {t("createProfile.proxy.noProxiesAvailable")}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="launch-hook-url">
-                            {t("createProfile.launchHook.label")}
-                          </Label>
-                          <Input
-                            id="launch-hook-url"
-                            value={launchHook}
-                            onChange={(e) => {
-                              setLaunchHook(e.target.value);
-                            }}
-                            placeholder={t(
-                              "createProfile.launchHook.placeholder",
-                            )}
-                            disabled={isCreating}
-                          />
-                        </div>
-
-                        {/* DNS Blocklist */}
-                        <div className="space-y-2">
-                          <Label>{t("dnsBlocklist.title")}</Label>
-                          <Select
-                            value={dnsBlocklist || "none"}
-                            onValueChange={(val) => {
-                              setDnsBlocklist(val === "none" ? "" : val);
-                            }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                placeholder={t("dnsBlocklist.none")}
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">
-                                {t("dnsBlocklist.none")}
-                              </SelectItem>
-                              <SelectItem value="light">
-                                {t("dnsBlocklist.light")}
-                              </SelectItem>
-                              <SelectItem value="normal">
-                                {t("dnsBlocklist.normal")}
-                              </SelectItem>
-                              <SelectItem value="pro">
-                                {t("dnsBlocklist.pro")}
-                              </SelectItem>
-                              <SelectItem value="pro_plus">
-                                {t("dnsBlocklist.proPlus")}
-                              </SelectItem>
-                              <SelectItem value="ultimate">
-                                {t("dnsBlocklist.ultimate")}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Extension Group + per-extension checkboxes + random */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label>{t("extensions.extensionGroup")}</Label>
-                            <div className="flex gap-2">
-                              <RippleButton
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => {
-                                  if (allExtensions.length === 0) return;
-                                  const idx = Math.floor(
-                                    Math.random() * allExtensions.length,
-                                  );
-                                  const pick = allExtensions[idx];
-                                  setSelectedExtensionIds((prev) =>
-                                    prev.includes(pick.id)
-                                      ? prev
-                                      : [...prev, pick.id],
-                                  );
-                                }}
-                              >
-                                {t("common.buttons.random")}
-                              </RippleButton>
-                              <RippleButton
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => {
-                                  void invoke("import_canary_extensions").then(
-                                    () => {
-                                      void invoke<
-                                        {
-                                          id: string;
-                                          name: string;
-                                          extension_ids: string[];
-                                        }[]
-                                      >("list_extension_groups").then(
-                                        setExtensionGroups,
-                                      );
-                                      void invoke<
-                                        { id: string; name: string }[]
-                                      >("list_extensions").then(
-                                        setAllExtensions,
-                                      );
-                                    },
-                                  );
-                                }}
-                              >
-                                {t("extensions.importCanary")}
-                              </RippleButton>
-                            </div>
-                          </div>
-                          {extensionGroups.length > 0 && (
-                            <Select
-                              value={selectedExtensionGroupId ?? "none"}
-                              onValueChange={(val) => {
-                                setSelectedExtensionGroupId(
-                                  val === "none" ? undefined : val,
-                                );
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue
-                                  placeholder={t("profileInfo.values.none")}
-                                />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">
-                                  {t("profileInfo.values.none")}
-                                </SelectItem>
-                                {extensionGroups.map((g) => (
-                                  <SelectItem key={g.id} value={g.id}>
-                                    {g.name} ({g.extension_ids.length})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                          {allExtensions.length > 0 && (
-                            <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
-                              {bundledExtensions.length > 0 && (
-                                <>
-                                  <p className="px-1 text-xs font-medium text-muted-foreground">
-                                    {t("extensions.bundled", "Bundled")}
-                                  </p>
-                                  {bundledExtensions.map((b) => (
-                                    <div
-                                      key={b.canary_id}
-                                      className="flex items-center gap-2 text-sm"
-                                    >
-                                      <Checkbox
-                                        id={`bundled-${b.canary_id}`}
-                                        disabled={b.builtin}
-                                        checked={
-                                          b.builtin ||
-                                          (b.installed_id !== null &&
-                                            selectedExtensionIds.includes(
-                                              b.installed_id,
-                                            ))
-                                        }
-                                        onCheckedChange={(checked) => {
-                                          if (!b.installed_id) return;
-                                          const id = b.installed_id;
-                                          setSelectedExtensionIds((prev) =>
-                                            checked === true
-                                              ? [...prev, id]
-                                              : prev.filter((x) => x !== id),
-                                          );
-                                        }}
-                                      />
-                                      <Label htmlFor={`bundled-${b.canary_id}`}>
-                                        {b.name}
-                                      </Label>
-                                      {b.builtin && (
                                         <Badge
                                           variant="outline"
-                                          className="px-1 py-0 text-[10px] leading-tight"
+                                          className="mr-1 px-1 py-0 text-[10px] leading-tight"
                                         >
-                                          {t("extensions.builtIn", "Built-in")}
+                                          WG
                                         </Badge>
-                                      )}
-                                    </div>
-                                  ))}
-                                  <p className="px-1 pt-1 text-xs font-medium text-muted-foreground">
-                                    {t("extensions.optional", "Optional")}
-                                  </p>
-                                </>
-                              )}
-                              {allExtensions
-                                .filter(
-                                  (ext) =>
-                                    !bundledExtensions.some(
-                                      (b) => b.installed_id === ext.id,
-                                    ),
-                                )
-                                .map((ext) => (
-                                  <div
-                                    key={ext.id}
-                                    className="flex items-center gap-2 text-sm"
-                                  >
-                                    <Checkbox
-                                      id={`ext-${ext.id}`}
-                                      checked={selectedExtensionIds.includes(
-                                        ext.id,
-                                      )}
-                                      onCheckedChange={(checked) => {
-                                        setSelectedExtensionIds((prev) =>
-                                          checked === true
-                                            ? [...prev, ext.id]
-                                            : prev.filter(
-                                                (id) => id !== ext.id,
-                                              ),
-                                        );
-                                      }}
-                                    />
-                                    <Label htmlFor={`ext-${ext.id}`}>
-                                      {ext.name}
-                                    </Label>
-                                  </div>
-                                ))}
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              id="random-extension"
-                              checked={randomExtension}
-                              onCheckedChange={(checked) => {
-                                setRandomExtension(checked === true);
-                              }}
-                            />
-                            <Label htmlFor="random-extension">
-                              {t("extensions.randomEphemeral")}
-                            </Label>
-                          </div>
+                                        {vpn.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                )}
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      ) : (
+                        <div className="flex items-center gap-3 rounded-md border p-3 text-sm text-muted-foreground">
+                          {t("createProfile.proxy.noProxiesAvailable")}
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="launch-hook-url">
+                        {t("createProfile.launchHook.label")}
+                      </Label>
+                      <Input
+                        id="launch-hook-url"
+                        value={launchHook}
+                        onChange={(e) => {
+                          setLaunchHook(e.target.value);
+                        }}
+                        placeholder={t("createProfile.launchHook.placeholder")}
+                        disabled={isCreating}
+                      />
+                    </div>
+                    {/* DNS Blocklist */}
+                    <div className="space-y-2">
+                      <Label>{t("dnsBlocklist.title")}</Label>
+                      <Select
+                        value={dnsBlocklist || "none"}
+                        onValueChange={(val) => {
+                          setDnsBlocklist(val === "none" ? "" : val);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("dnsBlocklist.none")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">
+                            {t("dnsBlocklist.none")}
+                          </SelectItem>
+                          <SelectItem value="light">
+                            {t("dnsBlocklist.light")}
+                          </SelectItem>
+                          <SelectItem value="normal">
+                            {t("dnsBlocklist.normal")}
+                          </SelectItem>
+                          <SelectItem value="pro">
+                            {t("dnsBlocklist.pro")}
+                          </SelectItem>
+                          <SelectItem value="pro_plus">
+                            {t("dnsBlocklist.proPlus")}
+                          </SelectItem>
+                          <SelectItem value="ultimate">
+                            {t("dnsBlocklist.ultimate")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {/* Extension Group + per-extension checkboxes + random */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>{t("extensions.extensionGroup")}</Label>
+                        <div className="flex gap-2">
+                          <RippleButton
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => {
+                              if (allExtensions.length === 0) return;
+                              const idx = Math.floor(
+                                Math.random() * allExtensions.length,
+                              );
+                              const pick = allExtensions[idx];
+                              setSelectedExtensionIds((prev) =>
+                                prev.includes(pick.id)
+                                  ? prev
+                                  : [...prev, pick.id],
+                              );
+                            }}
+                          >
+                            {t("common.buttons.random")}
+                          </RippleButton>
+                          <RippleButton
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => {
+                              void invoke("import_canary_extensions").then(
+                                () => {
+                                  void invoke<
+                                    {
+                                      id: string;
+                                      name: string;
+                                      extension_ids: string[];
+                                    }[]
+                                  >("list_extension_groups").then(
+                                    setExtensionGroups,
+                                  );
+                                  void invoke<{ id: string; name: string }[]>(
+                                    "list_extensions",
+                                  ).then(setAllExtensions);
+                                },
+                              );
+                            }}
+                          >
+                            {t("extensions.importCanary")}
+                          </RippleButton>
                         </div>
                       </div>
-                    </TabsContent>
-
-                    <TabsContent value="regular" className="mt-0">
-                      {/* Regular Browser Configuration */}
-                      <div className="space-y-6">
-                        {/* Profile Name */}
-                        <div className="space-y-2">
-                          <Label htmlFor="profile-name">
-                            {t("createProfile.profileName")}
-                          </Label>
-                          <Input
-                            id="profile-name"
-                            value={profileName}
-                            onChange={(e) => {
-                              setProfileName(e.target.value);
-                            }}
-                            onKeyDown={(e) => {
-                              if (
-                                e.key === "Enter" &&
-                                !isCreateDisabled &&
-                                !isCreating
-                              ) {
-                                void handleCreate();
-                              }
-                            }}
-                            placeholder={t(
-                              "createProfile.profileNamePlaceholder",
-                            )}
-                          />
-                        </div>
-
-                        {/* Regular Browser Configuration */}
-                        <div className="space-y-4">
-                          {selectedBrowser && (
-                            <div className="space-y-3">
-                              {isLoadingReleaseTypes && (
-                                <div className="flex items-center gap-3">
-                                  <div className="size-4 animate-spin rounded-full border-2 border-muted/40 border-t-primary" />
-                                  <p className="text-sm text-muted-foreground">
-                                    {t("createProfile.version.fetching")}
-                                  </p>
-                                </div>
-                              )}
-                              {!isLoadingReleaseTypes && releaseTypesError && (
-                                <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 p-3">
-                                  <p className="flex-1 text-sm text-destructive">
-                                    {releaseTypesError}
-                                  </p>
-                                  <RippleButton
-                                    onClick={() =>
-                                      selectedBrowser &&
-                                      loadReleaseTypes(selectedBrowser)
+                      {extensionGroups.length > 0 && (
+                        <Select
+                          value={selectedExtensionGroupId ?? "none"}
+                          onValueChange={(val) => {
+                            setSelectedExtensionGroupId(
+                              val === "none" ? undefined : val,
+                            );
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={t("profileInfo.values.none")}
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">
+                              {t("profileInfo.values.none")}
+                            </SelectItem>
+                            {extensionGroups.map((g) => (
+                              <SelectItem key={g.id} value={g.id}>
+                                {g.name} ({g.extension_ids.length})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {allExtensions.length > 0 && (
+                        <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
+                          {bundledExtensions.length > 0 && (
+                            <>
+                              <p className="px-1 text-xs font-medium text-muted-foreground">
+                                {t("extensions.bundled", "Bundled")}
+                              </p>
+                              {bundledExtensions.map((b) => (
+                                <div
+                                  key={b.canary_id}
+                                  className="flex items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    id={`bundled-${b.canary_id}`}
+                                    disabled={b.builtin}
+                                    checked={
+                                      b.builtin ||
+                                      (b.installed_id !== null &&
+                                        selectedExtensionIds.includes(
+                                          b.installed_id,
+                                        ))
                                     }
-                                    size="sm"
-                                    variant="outline"
-                                  >
-                                    {t("common.buttons.retry")}
-                                  </RippleButton>
-                                </div>
-                              )}
-                              {!isLoadingReleaseTypes &&
-                                !releaseTypesError &&
-                                !isBrowserCurrentlyDownloading(
-                                  selectedBrowser,
-                                ) &&
-                                !getCreatableVersion(selectedBrowser) &&
-                                getBestAvailableVersion(selectedBrowser) && (
-                                  <div className="flex items-center gap-3">
-                                    <p className="text-sm text-muted-foreground">
-                                      {t(
-                                        "createProfile.version.latestNeedsDownload",
-                                        {
-                                          version:
-                                            getBestAvailableVersion(
-                                              selectedBrowser,
-                                            )?.version,
-                                        },
-                                      )}
-                                    </p>
-                                    <LoadingButton
-                                      onClick={() => {
-                                        void handleDownload(selectedBrowser);
-                                      }}
-                                      isLoading={isBrowserCurrentlyDownloading(
-                                        selectedBrowser,
-                                      )}
-                                      className="ml-auto"
-                                      size="sm"
-                                      disabled={isBrowserCurrentlyDownloading(
-                                        selectedBrowser,
-                                      )}
+                                    onCheckedChange={(checked) => {
+                                      if (!b.installed_id) return;
+                                      const id = b.installed_id;
+                                      setSelectedExtensionIds((prev) =>
+                                        checked === true
+                                          ? [...prev, id]
+                                          : prev.filter((x) => x !== id),
+                                      );
+                                    }}
+                                  />
+                                  <Label htmlFor={`bundled-${b.canary_id}`}>
+                                    {b.name}
+                                  </Label>
+                                  {b.builtin && (
+                                    <Badge
+                                      variant="outline"
+                                      className="px-1 py-0 text-[10px] leading-tight"
                                     >
-                                      {t("common.buttons.download")}
-                                    </LoadingButton>
-                                  </div>
-                                )}
-                              {!isLoadingReleaseTypes &&
-                                !releaseTypesError &&
-                                !isBrowserCurrentlyDownloading(
-                                  selectedBrowser,
-                                ) &&
-                                getCreatableVersion(selectedBrowser) && (
-                                  <div className="text-sm text-muted-foreground">
-                                    ✓{" "}
-                                    {t(
-                                      "createProfile.version.latestAvailable",
-                                      {
-                                        version:
-                                          getCreatableVersion(selectedBrowser)
-                                            ?.version,
-                                      },
-                                    )}
-                                  </div>
-                                )}
-                              {isBrowserCurrentlyDownloading(
-                                selectedBrowser,
-                              ) && (
-                                <div className="text-sm text-muted-foreground">
-                                  {t(
-                                    "createProfile.version.latestDownloading",
-                                    {
-                                      version:
-                                        getBestAvailableVersion(selectedBrowser)
-                                          ?.version,
-                                    },
+                                      {t("extensions.builtIn", "Built-in")}
+                                    </Badge>
                                   )}
                                 </div>
-                              )}
-                            </div>
+                              ))}
+                              <p className="px-1 pt-1 text-xs font-medium text-muted-foreground">
+                                {t("extensions.optional", "Optional")}
+                              </p>
+                            </>
                           )}
-                        </div>
-
-                        {/* Proxy / VPN Selection - Always visible */}
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <Label>{t("createProfile.proxy.title")}</Label>
-                            <RippleButton
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setShowProxyForm(true);
-                              }}
-                              className="h-7 px-2 text-xs"
-                            >
-                              <GoPlus className="mr-1 size-3" />{" "}
-                              {t("createProfile.proxy.addProxy")}
-                            </RippleButton>
-                          </div>
-                          {storedProxies.length > 0 || vpnConfigs.length > 0 ? (
-                            <Popover
-                              open={proxyPopoverOpen}
-                              onOpenChange={setProxyPopoverOpen}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  role="combobox"
-                                  aria-expanded={proxyPopoverOpen}
-                                  aria-controls={proxyListboxIdRegular}
-                                  className="w-full justify-between font-normal"
-                                >
-                                  {(() => {
-                                    if (!selectedProxyId)
-                                      return t("createProfile.proxy.noProxy");
-                                    if (selectedProxyId.startsWith("vpn-")) {
-                                      const vpn = vpnConfigs.find(
-                                        (v) =>
-                                          v.id === selectedProxyId.slice(4),
-                                      );
-                                      return vpn
-                                        ? `WG — ${vpn.name}`
-                                        : t("createProfile.proxy.noProxy");
-                                    }
-                                    const proxy = storedProxies.find(
-                                      (p) => p.id === selectedProxyId,
-                                    );
-                                    return (
-                                      proxy?.name ??
-                                      t("createProfile.proxy.noProxy")
-                                    );
-                                  })()}
-                                  <LuChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                id={proxyListboxIdRegular}
-                                className="w-[240px] p-0"
-                                sideOffset={8}
+                          {allExtensions
+                            .filter(
+                              (ext) =>
+                                !bundledExtensions.some(
+                                  (b) => b.installed_id === ext.id,
+                                ),
+                            )
+                            .map((ext) => (
+                              <div
+                                key={ext.id}
+                                className="flex items-center gap-2 text-sm"
                               >
-                                <Command>
-                                  <CommandInput
-                                    placeholder={t(
-                                      "createProfile.proxy.search",
-                                    )}
-                                  />
-                                  <CommandList>
-                                    <CommandEmpty>
-                                      {t("createProfile.proxy.notFound")}
-                                    </CommandEmpty>
-                                    <CommandGroup>
-                                      <CommandItem
-                                        value="__none__"
-                                        onSelect={() => {
-                                          setSelectedProxyId(undefined);
-                                          setProxyPopoverOpen(false);
-                                        }}
-                                      >
-                                        <LuCheck
-                                          className={cn(
-                                            "mr-2 size-4",
-                                            !selectedProxyId
-                                              ? "opacity-100"
-                                              : "opacity-0",
-                                          )}
-                                        />
-                                        {t("common.labels.none")}
-                                      </CommandItem>
-                                      {storedProxies.map((proxy) => (
-                                        <CommandItem
-                                          key={proxy.id}
-                                          value={proxy.name}
-                                          onSelect={() => {
-                                            setSelectedProxyId(proxy.id);
-                                            setProxyPopoverOpen(false);
-                                          }}
-                                        >
-                                          <LuCheck
-                                            className={cn(
-                                              "mr-2 size-4",
-                                              selectedProxyId === proxy.id
-                                                ? "opacity-100"
-                                                : "opacity-0",
-                                            )}
-                                          />
-                                          {proxy.name}
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
-                                    {vpnConfigs.length > 0 && (
-                                      <CommandGroup heading="VPNs">
-                                        {vpnConfigs.map((vpn) => (
-                                          <CommandItem
-                                            key={vpn.id}
-                                            value={`vpn-${vpn.name}`}
-                                            onSelect={() => {
-                                              setSelectedProxyId(
-                                                `vpn-${vpn.id}`,
-                                              );
-                                              setProxyPopoverOpen(false);
-                                            }}
-                                          >
-                                            <LuCheck
-                                              className={cn(
-                                                "mr-2 size-4",
-                                                selectedProxyId ===
-                                                  `vpn-${vpn.id}`
-                                                  ? "opacity-100"
-                                                  : "opacity-0",
-                                              )}
-                                            />
-                                            <Badge
-                                              variant="outline"
-                                              className="mr-1 px-1 py-0 text-[10px] leading-tight"
-                                            >
-                                              WG
-                                            </Badge>
-                                            {vpn.name}
-                                          </CommandItem>
-                                        ))}
-                                      </CommandGroup>
-                                    )}
-                                  </CommandList>
-                                </Command>
-                              </PopoverContent>
-                            </Popover>
-                          ) : (
-                            <div className="flex items-center gap-3 rounded-md border p-3 text-sm text-muted-foreground">
-                              {t("createProfile.proxy.noProxiesAvailable")}
-                            </div>
-                          )}
+                                <Checkbox
+                                  id={`ext-${ext.id}`}
+                                  checked={selectedExtensionIds.includes(
+                                    ext.id,
+                                  )}
+                                  onCheckedChange={(checked) => {
+                                    setSelectedExtensionIds((prev) =>
+                                      checked === true
+                                        ? [...prev, ext.id]
+                                        : prev.filter((id) => id !== ext.id),
+                                    );
+                                  }}
+                                />
+                                <Label htmlFor={`ext-${ext.id}`}>
+                                  {ext.name}
+                                </Label>
+                              </div>
+                            ))}
                         </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="launch-hook-url-regular">
-                            {t("createProfile.launchHook.label")}
-                          </Label>
-                          <Input
-                            id="launch-hook-url-regular"
-                            value={launchHook}
-                            onChange={(e) => {
-                              setLaunchHook(e.target.value);
-                            }}
-                            placeholder={t(
-                              "createProfile.launchHook.placeholder",
-                            )}
-                            disabled={isCreating}
-                          />
-                        </div>
+                      )}
+                      <div className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          id="random-extension"
+                          checked={randomExtension}
+                          onCheckedChange={(checked) => {
+                            setRandomExtension(checked === true);
+                          }}
+                        />
+                        <Label htmlFor="random-extension">
+                          {t("extensions.randomEphemeral")}
+                        </Label>
                       </div>
-                    </TabsContent>
-                  </>
-                )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </ScrollArea>
-        </Tabs>
+        </div>
 
         <DialogFooter className="shrink-0 border-t pt-4">
-          {currentStep === "browser-config" ? (
-            <>
-              <RippleButton variant="outline" onClick={handleBack}>
-                {t("common.buttons.back")}
-              </RippleButton>
-              <LoadingButton
-                onClick={handleCreate}
-                isLoading={isCreating}
-                disabled={isCreateDisabled}
-              >
-                {t("common.buttons.create")}
-              </LoadingButton>
-            </>
-          ) : (
-            <RippleButton variant="outline" onClick={handleClose}>
-              {t("common.buttons.cancel")}
-            </RippleButton>
-          )}
+          <RippleButton variant="outline" onClick={handleClose}>
+            {t("common.buttons.cancel")}
+          </RippleButton>
+          <LoadingButton
+            onClick={handleCreate}
+            isLoading={isCreating}
+            disabled={isCreateDisabled}
+          >
+            {t("common.buttons.create")}
+          </LoadingButton>
         </DialogFooter>
       </DialogContent>
       <ProxyFormDialog

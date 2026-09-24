@@ -35,7 +35,7 @@ export function ProfileSyncDialog({
 }: ProfileSyncDialogProps) {
   const { t } = useTranslation();
   const isCloudSyncEligible = false;
-  const canUseEncryption = true;
+  const _canUseEncryption = true;
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMode, setSyncMode] = useState<SyncMode>(

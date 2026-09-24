@@ -41,7 +41,6 @@ import { SyncAllDialog } from "@/components/sync-all-dialog";
 import { SyncConfigDialog } from "@/components/sync-config-dialog";
 import { SyncFollowerDialog } from "@/components/sync-follower-dialog";
 import { ThankYouDialog } from "@/components/thank-you-dialog";
-import { WayfernTermsDialog } from "@/components/wayfern-terms-dialog";
 import { WelcomeDialog } from "@/components/welcome-dialog";
 import { WindowResizeWarningDialog } from "@/components/window-resize-warning-dialog";
 import { useGroupEvents } from "@/hooks/use-group-events";
@@ -53,7 +52,6 @@ import { useSyncSessions } from "@/hooks/use-sync-session";
 import { useUpdateNotifications } from "@/hooks/use-update-notifications";
 import { useVersionUpdater } from "@/hooks/use-version-updater";
 import { useVpnEvents } from "@/hooks/use-vpn-events";
-import { useWayfernTerms } from "@/hooks/use-wayfern-terms";
 import { translateBackendError } from "@/lib/backend-errors";
 import {
   ONBOARDING_TOUR_FINISHED_EVENT,
@@ -72,14 +70,9 @@ import {
   showSyncProgressToast,
   showToast,
 } from "@/lib/toast-utils";
-import type {
-  BrowserProfile,
-  CamoufoxConfig,
-  SyncSettings,
-  WayfernConfig,
-} from "@/types";
+import type { BrowserProfile, CamoufoxConfig, SyncSettings } from "@/types";
 
-type BrowserTypeString = "camoufox" | "wayfern" | "cloak";
+type BrowserTypeString = "cloak";
 
 interface PendingUrl {
   id: string;
@@ -206,13 +199,6 @@ export default function Home() {
   const { getProfileSyncInfo } = useSyncSessions();
   const [syncLeaderProfile, setSyncLeaderProfile] =
     useState<BrowserProfile | null>(null);
-
-  // Wayfern terms hook
-  const {
-    termsAccepted,
-    isLoading: termsLoading,
-    checkTerms,
-  } = useWayfernTerms();
 
   // All features are free
   const crossOsUnlocked = true;
@@ -781,26 +767,6 @@ export default function Home() {
     [t],
   );
 
-  const handleSaveWayfernConfig = useCallback(
-    async (profile: BrowserProfile, config: WayfernConfig) => {
-      try {
-        await invoke("update_wayfern_config", {
-          profileId: profile.id,
-          config,
-        });
-        // No need to manually reload - useProfileEvents will handle the update
-        setCamoufoxConfigDialogOpen(false);
-      } catch (err: unknown) {
-        console.error("Failed to update wayfern config:", err);
-        showErrorToast(
-          t("errors.updateWayfernConfigFailed", { error: JSON.stringify(err) }),
-        );
-        throw err;
-      }
-    },
-    [t],
-  );
-
   const handleCreateProfile = useCallback(
     async (profileData: {
       name: string;
@@ -810,7 +776,7 @@ export default function Home() {
       proxyId?: string;
       vpnId?: string;
       camoufoxConfig?: CamoufoxConfig;
-      wayfernConfig?: WayfernConfig;
+      cloakConfig?: import("@/types").CloakConfig;
       groupId?: string;
       extensionGroupId?: string;
       extensionIds?: string[];
@@ -831,7 +797,7 @@ export default function Home() {
             proxyId: profileData.proxyId,
             vpnId: profileData.vpnId,
             camoufoxConfig: profileData.camoufoxConfig,
-            wayfernConfig: profileData.wayfernConfig,
+            cloakConfig: profileData.cloakConfig,
             groupId:
               profileData.groupId ??
               (selectedGroupId && selectedGroupId !== "__all__"
@@ -909,7 +875,11 @@ export default function Home() {
       }
 
       // Show one-time warning about window resizing for fingerprinted browsers
-      if (profile.browser === "camoufox" || profile.browser === "wayfern") {
+      if (
+        profile.browser === "camoufox" ||
+        profile.browser === "wayfern" ||
+        profile.browser === "cloak"
+      ) {
         try {
           const dismissed = await invoke<boolean>(
             "get_window_resize_warning_dismissed",
@@ -1123,7 +1093,9 @@ export default function Home() {
     const eligibleProfiles = profiles.filter(
       (p) =>
         selectedProfiles.includes(p.id) &&
-        (p.browser === "wayfern" || p.browser === "camoufox"),
+        (p.browser === "wayfern" ||
+          p.browser === "camoufox" ||
+          p.browser === "cloak"),
     );
     if (eligibleProfiles.length === 0) {
       showErrorToast(t("errors.cookieCopyUnsupportedBrowser"));
@@ -1383,7 +1355,7 @@ export default function Home() {
       void checkMissingBinaries();
     }
 
-    // Proactively download Wayfern and Camoufox if not already available
+    // Proactively download Cloak if not already available
     if (!profilesLoading) {
       void invoke("ensure_active_browsers_downloaded").catch((err: unknown) => {
         console.error("Failed to auto-download browsers:", err);
@@ -1412,7 +1384,6 @@ export default function Home() {
     let unlistenStarted: (() => void) | undefined;
     let unlistenProgress: (() => void) | undefined;
     let unlistenCompleted: (() => void) | undefined;
-    let unlistenWayfernBlocked: (() => void) | undefined;
 
     void (async () => {
       unlistenRequired = await listen(
@@ -1475,16 +1446,6 @@ export default function Home() {
         });
       });
 
-      unlistenWayfernBlocked = await listen("wayfern-paid-blocked", () => {
-        showToast({
-          id: "wayfern-paid-blocked",
-          type: "error",
-          title: t("wayfernBlocked.title"),
-          description: t("wayfernBlocked.description"),
-          duration: 15000,
-        });
-      });
-
       // If the effect was torn down mid-setup, the cleanup below already ran
       // before these handles existed — unlisten them now so nothing leaks.
       if (disposed) {
@@ -1492,7 +1453,6 @@ export default function Home() {
         unlistenStarted?.();
         unlistenProgress?.();
         unlistenCompleted?.();
-        unlistenWayfernBlocked?.();
       }
     })();
 
@@ -1502,65 +1462,8 @@ export default function Home() {
       unlistenStarted?.();
       unlistenProgress?.();
       unlistenCompleted?.();
-      unlistenWayfernBlocked?.();
     };
   }, [t]);
-
-  // Show warning for non-wayfern/camoufox/cloak profiles (support ending March 15, 2026)
-  useEffect(() => {
-    if (profiles.length === 0) return;
-
-    const unsupportedProfiles = profiles.filter(
-      (p) =>
-        p.browser !== "wayfern" &&
-        p.browser !== "camoufox" &&
-        p.browser !== "cloak",
-    );
-
-    if (unsupportedProfiles.length > 0) {
-      const unsupportedNames = unsupportedProfiles
-        .map((p) => p.name)
-        .join(", ");
-
-      showToast({
-        id: "browser-support-ending-warning",
-        type: "error",
-        title: t("browserSupport.endingSoonTitle"),
-        description: t("browserSupport.endingSoonDescription", {
-          profiles: unsupportedNames,
-        }),
-        duration: 15000,
-        action: {
-          label: t("common.buttons.learnMore"),
-          onClick: () => {
-            const event = new CustomEvent("url-open-request", {
-              detail: "https://github.com/zhom/donutbrowser/discussions",
-            });
-            window.dispatchEvent(event);
-          },
-        },
-      });
-    }
-  }, [profiles, t]);
-
-  // Re-check Wayfern terms when a browser download completes
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<{ stage: string }>(
-        "download-progress",
-        (event) => {
-          if (event.payload.stage === "completed") {
-            void checkTerms();
-          }
-        },
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [checkTerms]);
 
   // Check permissions when they are initialized. During first-run onboarding
   // the welcome flow requests permissions, so the standalone dialog is deferred
@@ -1779,7 +1682,6 @@ export default function Home() {
         }}
         onCreateProfile={handleCreateProfile}
         selectedGroupId={selectedGroupId}
-        crossOsUnlocked={crossOsUnlocked}
       />
 
       <CommandPalette
@@ -1892,7 +1794,6 @@ export default function Home() {
         }}
         profile={currentProfileForCamoufoxConfig}
         onSave={handleSaveCamoufoxConfig}
-        onSaveWayfern={handleSaveWayfernConfig}
         isRunning={
           currentProfileForCamoufoxConfig
             ? runningProfiles.has(currentProfileForCamoufoxConfig.id)
@@ -2045,12 +1946,6 @@ export default function Home() {
         onSyncConfigOpen={() => {
           setSyncConfigDialogOpen(true);
         }}
-      />
-
-      {/* Wayfern Terms and Conditions Dialog - shown if terms not accepted */}
-      <WayfernTermsDialog
-        isOpen={!termsLoading && termsAccepted === false}
-        onAccepted={checkTerms}
       />
 
       <WindowResizeWarningDialog

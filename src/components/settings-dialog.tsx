@@ -148,7 +148,7 @@ export function SettingsDialog({
     isCameraAccessGranted,
   } = usePermissions();
   // Encryption is available to everyone
-  const canUseEncryption = true;
+  const _canUseEncryption = true;
   const {
     currentLanguage,
     changeLanguage,

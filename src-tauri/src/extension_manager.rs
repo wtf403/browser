@@ -137,10 +137,57 @@ fn extract_manifest_metadata(
     Err(_) => return (None, None, None, None, None),
   };
 
+  // Chrome i18n: name/description may be "__MSG_key__" placeholders
+  // resolved via _locales/<default_locale>/messages.json.
+  let default_locale = manifest
+    .get("default_locale")
+    .and_then(|v| v.as_str())
+    .unwrap_or("en");
+  let messages: Option<serde_json::Value> = {
+    let locale_path = format!("_locales/{default_locale}/messages.json");
+    if let Ok(mut f) = archive.by_name(&locale_path) {
+      let mut contents = String::new();
+      if std::io::Read::read_to_string(&mut f, &mut contents).is_ok() {
+        serde_json::from_str(&contents).ok()
+      } else {
+        None
+      }
+    } else {
+      None
+    }
+  };
+  let resolve_msg = |s: &str| -> String {
+    let t = s.trim();
+    if t.starts_with("__MSG_") && t.ends_with("__") {
+      let key = &t["__MSG_".len()..t.len() - "__".len()];
+      let lower = key.to_lowercase();
+      if let Some(msgs) = messages.as_ref().and_then(|m| m.as_object()) {
+        for (k, v) in msgs {
+          if k.to_lowercase() == lower {
+            if let Some(msg) = v.get("message").and_then(|v| v.as_str()) {
+              return msg.to_string();
+            }
+          }
+        }
+      }
+      // Fallback: humanize the key (e.g. extName -> Ext Name)
+      let mut out = String::new();
+      for (i, c) in key.chars().enumerate() {
+        if i > 0 && c.is_uppercase() {
+          out.push(' ');
+        }
+        out.push(c);
+      }
+      out
+    } else {
+      s.to_string()
+    }
+  };
+
   let name = manifest
     .get("name")
     .and_then(|v| v.as_str())
-    .map(|s| s.to_string());
+    .map(resolve_msg);
   let version = manifest
     .get("version")
     .and_then(|v| v.as_str())
@@ -148,7 +195,7 @@ fn extract_manifest_metadata(
   let description = manifest
     .get("description")
     .and_then(|v| v.as_str())
-    .map(|s| s.to_string());
+    .map(resolve_msg);
   let author = manifest
     .get("author")
     .and_then(|v| v.as_str())
@@ -1092,14 +1139,26 @@ impl ExtensionManager {
       }
 
       let needs_meta_backfill = ext.version.is_none() && ext.description.is_none();
+      let needs_name_backfill =
+        ext.name.trim().starts_with("__MSG_") && ext.name.trim().ends_with("__");
       let needs_gecko_backfill =
         ext.gecko_id.is_none() && ext.browser_compatibility.iter().any(|b| b == "firefox");
 
-      if needs_meta_backfill || needs_gecko_backfill {
+      if needs_meta_backfill || needs_gecko_backfill || needs_name_backfill {
         let file_path = file_dir.join(&ext.file_name);
         if let Ok(file_data) = fs::read(&file_path) {
           let mut updated_ext = ext.clone();
           let mut changed = false;
+
+          if needs_name_backfill {
+            let (manifest_name, _, _, _, _) = extract_manifest_metadata(&file_data, &ext.file_type);
+            if let Some(mn) = manifest_name {
+              if !mn.contains("__MSG_") {
+                updated_ext.name = mn;
+                changed = true;
+              }
+            }
+          }
 
           if needs_meta_backfill {
             let (manifest_name, version, description, author, homepage_url) =

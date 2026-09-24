@@ -639,11 +639,7 @@ impl Downloader {
     browser_str: String,
     version: String,
   ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Only check Wayfern terms if Wayfern is already downloaded
-    let terms_manager = crate::wayfern_terms::WayfernTermsManager::instance();
-    if terms_manager.is_wayfern_downloaded() && !terms_manager.is_terms_accepted() {
-      return Err("Please accept Wayfern Terms and Conditions before downloading browsers".into());
-    }
+    // Wayfern terms gate removed — Cloak is the only browser and needs no terms.
 
     // For Wayfern/Camoufox, resolve the actual available version from the API
     let version = if browser_str == "wayfern" {

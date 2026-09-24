@@ -352,8 +352,8 @@ impl BrowserRunner {
         None
       };
 
-      // Install extensions if an extension group is assigned
-      if updated_profile.extension_group_id.is_some() {
+      // Install extensions (group + per-profile selection + ephemeral random)
+      {
         let profiles_dir = self.profile_manager.get_profiles_dir();
         let ext_profile_path = if let Some(ref override_path) = override_profile_path {
           override_path.clone()
@@ -689,9 +689,9 @@ impl BrowserRunner {
         crate::ephemeral_dirs::get_effective_profile_path(&updated_profile, &profiles_dir);
       let profile_path_str = profile_data_path.to_string_lossy().to_string();
 
-      // Install extensions if an extension group is assigned
+      // Install extensions (group + per-profile selection + ephemeral random)
       let mut extension_paths = Vec::new();
-      if updated_profile.extension_group_id.is_some() {
+      {
         let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
         match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
           Ok(paths) => {
@@ -942,9 +942,9 @@ impl BrowserRunner {
         crate::ephemeral_dirs::get_effective_profile_path(&updated_profile, &profiles_dir);
       let profile_path_str = profile_data_path.to_string_lossy().to_string();
 
-      // Install extensions if an extension group is assigned
+      // Install extensions (group + per-profile selection + ephemeral random)
       let mut extension_paths = Vec::new();
-      if updated_profile.extension_group_id.is_some() {
+      {
         let mgr = crate::extension_manager::EXTENSION_MANAGER.lock().unwrap();
         match mgr.install_extensions_for_profile(&updated_profile, &profile_data_path) {
           Ok(paths) => {
