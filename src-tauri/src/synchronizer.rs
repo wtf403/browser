@@ -110,10 +110,9 @@ impl SynchronizerManager {
       .ok_or("Leader profile not found")?
       .clone();
 
-    if leader.browser != "wayfern" {
+    if leader.browser != "cloak" && leader.browser != "wayfern" {
       return Err(
-        "Synchronizer only supports Wayfern profiles. Camoufox profiles cannot be used."
-          .to_string(),
+        "Synchronizer only supports Cloak profiles. Camoufox profiles cannot be used.".to_string(),
       );
     }
 
@@ -136,9 +135,9 @@ impl SynchronizerManager {
         .find(|p| p.id.to_string() == *fid)
         .ok_or(format!("Follower profile '{fid}' not found"))?
         .clone();
-      if fp.browser != "wayfern" {
+      if fp.browser != "cloak" && fp.browser != "wayfern" {
         return Err(format!(
-          "Profile '{}' is not a Wayfern profile. Only Wayfern profiles can be synchronized.",
+          "Profile '{}' is not a Cloak profile. Only Cloak profiles can be synchronized.",
           fp.name
         ));
       }
@@ -926,9 +925,18 @@ impl SynchronizerManager {
       if attempt > 0 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
       }
-      let port = crate::wayfern_manager::WayfernManager::instance()
-        .get_cdp_port(&profile_path_str)
-        .await;
+      let port = if profile.browser == "cloak" {
+        // Cloak instances are keyed by effective path (ephemeral-aware).
+        let effective = crate::ephemeral_dirs::get_effective_profile_path(profile, &profiles_dir);
+        crate::cloak_manager::CloakManager::instance()
+          .find_cloak_by_profile(&effective.to_string_lossy())
+          .await
+          .and_then(|r| r.cdp_port)
+      } else {
+        crate::wayfern_manager::WayfernManager::instance()
+          .get_cdp_port(&profile_path_str)
+          .await
+      };
       if let Some(p) = port {
         return Ok(p);
       }

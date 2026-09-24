@@ -858,7 +858,12 @@ impl WayfernManager {
         format!("Failed to spawn Wayfern: {e}{hint}").into()
       })?;
     let process_id = child.id();
-    drop(child);
+    // Reap in background so the exited browser never stays a zombie on
+    // Linux and its stdio FDs are released. wait() only resolves on exit.
+    tokio::spawn(async move {
+      let mut child = child;
+      let _ = child.wait().await;
+    });
 
     self.wait_for_cdp_ready(port).await?;
 

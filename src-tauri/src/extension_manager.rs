@@ -116,9 +116,14 @@ fn extract_manifest_metadata(
     Err(_) => return (None, None, None, None, None),
   };
 
+  // Cap single-file reads so a malicious archive can't OOM the app.
+  const MAX_JSON_BYTES: u64 = 2 * 1024 * 1024;
   let manifest_content = if let Ok(mut file) = archive.by_name("manifest.json") {
     let mut contents = String::new();
-    if std::io::Read::read_to_string(&mut file, &mut contents).is_ok() {
+    let mut limited = std::io::Read::take(&mut file, MAX_JSON_BYTES + 1);
+    if std::io::Read::read_to_string(&mut limited, &mut contents).is_ok()
+      && (contents.len() as u64) <= MAX_JSON_BYTES
+    {
       Some(contents)
     } else {
       None
@@ -147,7 +152,10 @@ fn extract_manifest_metadata(
     let locale_path = format!("_locales/{default_locale}/messages.json");
     if let Ok(mut f) = archive.by_name(&locale_path) {
       let mut contents = String::new();
-      if std::io::Read::read_to_string(&mut f, &mut contents).is_ok() {
+      let mut limited = std::io::Read::take(&mut f, MAX_JSON_BYTES + 1);
+      if std::io::Read::read_to_string(&mut limited, &mut contents).is_ok()
+        && (contents.len() as u64) <= MAX_JSON_BYTES
+      {
         serde_json::from_str(&contents).ok()
       } else {
         None
@@ -1084,8 +1092,20 @@ impl ExtensionManager {
         }
       }
     };
+    // Zip-bomb guard: cap entries + total unpacked bytes (Linux disk/RAM).
+    const MAX_ENTRIES: usize = 5_000;
+    const MAX_TOTAL_BYTES: u64 = 200 * 1024 * 1024;
+    if archive.len() > MAX_ENTRIES {
+      return Err("Extension archive has too many entries".into());
+    }
+    let mut total: u64 = 0;
     for i in 0..archive.len() {
       let mut file = archive.by_index(i)?;
+      // Skip entries escaping the destination (zip-slip).
+      match file.enclosed_name() {
+        Some(p) if p.components().count() > 0 => {}
+        _ => continue,
+      }
       let out_path = dest.join(file.mangled_name());
 
       if file.is_dir() {
@@ -1095,7 +1115,11 @@ impl ExtensionManager {
           fs::create_dir_all(parent)?;
         }
         let mut out_file = fs::File::create(&out_path)?;
-        std::io::copy(&mut file, &mut out_file)?;
+        let n = std::io::copy(&mut file, &mut out_file)?;
+        total += n;
+        if total > MAX_TOTAL_BYTES {
+          return Err("Extension archive too large".into());
+        }
       }
     }
 

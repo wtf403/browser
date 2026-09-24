@@ -30,19 +30,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { WayfernConfigForm } from "@/components/wayfern-config-form";
 import { useBrowserSupport } from "@/hooks/use-browser-support";
 import { useProxyEvents } from "@/hooks/use-proxy-events";
 import { parseBackendError, translateBackendError } from "@/lib/backend-errors";
 import { getBrowserDisplayName, getBrowserIcon } from "@/lib/browser-utils";
 import { cn } from "@/lib/utils";
-import type { DetectedProfile, WayfernConfig } from "@/types";
+import type { DetectedProfile } from "@/types";
 import { RippleButton } from "./ui/ripple";
 
-const getMappedBrowser = (browser: string): "camoufox" | "wayfern" => {
+const getMappedBrowser = (browser: string): "camoufox" | "cloak" => {
   if (["firefox", "firefox-developer", "zen"].includes(browser))
     return "camoufox";
-  return "wayfern";
+  return "cloak";
 };
 
 interface ImportProfileDialogProps {
@@ -55,7 +54,6 @@ interface ImportProfileDialogProps {
 export function ImportProfileDialog({
   isOpen,
   onClose,
-  crossOsUnlocked,
   subPage,
 }: ImportProfileDialogProps) {
   const { t } = useTranslation();
@@ -70,7 +68,6 @@ export function ImportProfileDialog({
   const [currentStep, setCurrentStep] = useState<"select" | "configure">(
     "select",
   );
-  const [wayfernConfig, setWayfernConfig] = useState<WayfernConfig>({});
   const [selectedProxyId, setSelectedProxyId] = useState<string | undefined>();
 
   // Auto-detect state
@@ -91,9 +88,10 @@ export function ImportProfileDialog({
   const { storedProxies } = useProxyEvents();
 
   // Firefox-based browsers map to the deprecated Camoufox and can no longer be
-  // imported (the backend rejects them); only offer Chromium-family sources.
+  // imported (the backend rejects them); only offer Chromium-family sources
+  // (imported as Cloak profiles).
   const importableBrowsers = supportedBrowsers.filter(
-    (browser) => getMappedBrowser(browser) === "wayfern",
+    (browser) => getMappedBrowser(browser) === "cloak",
   );
 
   const loadDetectedProfiles = useCallback(async () => {
@@ -177,11 +175,6 @@ export function ImportProfileDialog({
       newProfileName = manualProfileName.trim();
     }
 
-    const mappedBrowser =
-      importMode === "auto-detect" && selectedProfile
-        ? getMappedBrowser(selectedProfile.mapped_browser)
-        : getMappedBrowser(browserType);
-
     setIsImporting(true);
     try {
       await invoke("import_browser_profile", {
@@ -189,9 +182,10 @@ export function ImportProfileDialog({
         browserType,
         newProfileName,
         proxyId: selectedProxyId ?? null,
-        // Camoufox import is deprecated/blocked; only Wayfern configs are sent.
+        // Camoufox import is deprecated/blocked; Cloak needs no fingerprint
+        // config at import (defaults are applied by the backend).
         camoufoxConfig: null,
-        wayfernConfig: mappedBrowser === "wayfern" ? wayfernConfig : null,
+        wayfernConfig: null,
       });
 
       toast.success(
@@ -229,15 +223,12 @@ export function ImportProfileDialog({
     manualProfilePath,
     manualProfileName,
     selectedProxyId,
-    wayfernConfig,
     onClose,
-    selectedProfile,
     t,
   ]);
 
   const handleClose = () => {
     setCurrentStep("select");
-    setWayfernConfig({});
     setSelectedProxyId(undefined);
     setSelectedDetectedProfile(null);
     setAutoDetectProfileName("");
@@ -587,17 +578,9 @@ export function ImportProfileDialog({
                 </Select>
               </div>
 
-              {/* Only Wayfern profiles are importable now (Camoufox/Firefox
-                  import is deprecated and blocked). */}
-              <WayfernConfigForm
-                config={wayfernConfig}
-                onConfigChange={(key, value) => {
-                  setWayfernConfig((prev) => ({ ...prev, [key]: value }));
-                }}
-                isCreating={true}
-                crossOsUnlocked={crossOsUnlocked}
-                limitedMode={false}
-              />
+              {/* Only Cloak profiles are importable now (Camoufox/Firefox
+                  import is deprecated and blocked). Cloak needs no
+                  fingerprint config at import — defaults apply. */}
             </div>
           )}
         </div>

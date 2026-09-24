@@ -5,6 +5,7 @@ use std::fs::{self, create_dir_all};
 use std::path::Path;
 
 use crate::camoufox_manager::CamoufoxConfig;
+use crate::cloak_manager::CloakConfig;
 use crate::downloaded_browsers_registry::DownloadedBrowsersRegistry;
 use crate::profile::types::{get_host_os, BrowserProfile, SyncMode};
 use crate::profile::ProfileManager;
@@ -23,10 +24,11 @@ pub struct DetectedProfile {
 fn map_browser_type(browser: &str) -> &str {
   // Firefox-based sources map to the now-deprecated Camoufox. They are no longer
   // detected for import; the mapping is kept only so the import command can
-  // recognize and REJECT them. Everything else maps to Wayfern.
+  // recognize and REJECT them. Everything else maps to Cloak — the only
+  // browser used for new profiles.
   match browser {
     "firefox" | "firefox-developer" | "zen" | "camoufox" => "camoufox",
-    _ => "wayfern",
+    _ => "cloak",
   }
 }
 
@@ -58,7 +60,7 @@ impl ProfileImporter {
 
     // Firefox-based browsers (Firefox, Firefox Developer, Zen) map to Camoufox,
     // which is deprecated — they can no longer be imported. Only Chromium-based
-    // sources (mapping to Wayfern) are detected.
+    // sources (mapping to Cloak) are detected.
     detected_profiles.extend(self.detect_chrome_profiles()?);
     detected_profiles.extend(self.detect_brave_profiles()?);
     detected_profiles.extend(self.detect_chromium_profiles()?);
@@ -262,8 +264,9 @@ impl ProfileImporter {
 
     let version = self.get_default_version_for_browser(mapped)?;
 
-    // Camoufox import is removed; only Wayfern profiles are imported now, so the
-    // imported profile never carries a Camoufox config.
+    // Camoufox import is removed; only Cloak profiles are imported now, so the
+    // imported profile never carries a Camoufox config. A Wayfern config is
+    // kept only for legacy "wayfern" sources (already-mapped profiles).
     let final_camoufox_config: Option<CamoufoxConfig> = None;
 
     let final_wayfern_config = if mapped == "wayfern" {
@@ -365,7 +368,11 @@ impl ProfileImporter {
       release_type: "stable".to_string(),
       camoufox_config: final_camoufox_config,
       wayfern_config: final_wayfern_config,
-      cloak_config: None,
+      cloak_config: if mapped == "cloak" {
+        Some(CloakConfig::default())
+      } else {
+        None
+      },
       group_id: None,
       tags: Vec::new(),
       note: None,
@@ -540,11 +547,11 @@ mod tests {
     assert_eq!(map_browser_type("firefox"), "camoufox");
     assert_eq!(map_browser_type("firefox-developer"), "camoufox");
     assert_eq!(map_browser_type("zen"), "camoufox");
-    assert_eq!(map_browser_type("chromium"), "wayfern");
-    assert_eq!(map_browser_type("brave"), "wayfern");
+    assert_eq!(map_browser_type("chromium"), "cloak");
+    assert_eq!(map_browser_type("brave"), "cloak");
     assert_eq!(map_browser_type("camoufox"), "camoufox");
-    assert_eq!(map_browser_type("wayfern"), "wayfern");
-    assert_eq!(map_browser_type("something_else"), "wayfern");
+    assert_eq!(map_browser_type("wayfern"), "cloak");
+    assert_eq!(map_browser_type("something_else"), "cloak");
   }
 
   #[test]

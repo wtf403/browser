@@ -208,7 +208,7 @@ pub async fn start_vpn_worker(vpn_id: &str) -> Result<VpnWorkerConfig, Box<dyn s
       });
     }
 
-    let child = cmd.spawn()?;
+    let mut child = cmd.spawn()?;
     let pid = child.id();
 
     let mut config_with_pid = config.clone();
@@ -216,7 +216,11 @@ pub async fn start_vpn_worker(vpn_id: &str) -> Result<VpnWorkerConfig, Box<dyn s
     config_with_pid.local_port = Some(local_port);
     save_vpn_worker_config(&config_with_pid)?;
 
-    drop(child);
+    // Reap the child on exit so it never stays a zombie (Unix) — the worker
+    // itself keeps running detached; wait() only resolves after it exits.
+    std::thread::spawn(move || {
+      let _ = child.wait();
+    });
   }
 
   #[cfg(windows)]
@@ -250,7 +254,7 @@ pub async fn start_vpn_worker(vpn_id: &str) -> Result<VpnWorkerConfig, Box<dyn s
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
 
-    let child = cmd.spawn()?;
+    let mut child = cmd.spawn()?;
     let pid = child.id();
 
     let mut config_with_pid = config.clone();
@@ -258,7 +262,10 @@ pub async fn start_vpn_worker(vpn_id: &str) -> Result<VpnWorkerConfig, Box<dyn s
     config_with_pid.local_port = Some(local_port);
     save_vpn_worker_config(&config_with_pid)?;
 
-    drop(child);
+    // Reap on exit so no zombie/handle is left behind (see Unix block above).
+    std::thread::spawn(move || {
+      let _ = child.wait();
+    });
   }
 
   wait_for_vpn_worker_ready(&id).await

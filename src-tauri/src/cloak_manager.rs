@@ -161,6 +161,9 @@ impl CloakManager {
 
     log::info!("Launching CloakBrowser on CDP port {port}");
 
+    // Bound `instances` growth across launches.
+    self.cleanup_dead_instances().await;
+
     let mut cmd = TokioCommand::new(&executable_path);
 
     // Core args
@@ -244,8 +247,13 @@ impl CloakManager {
     })?;
 
     let pid = child.id().unwrap_or(0);
-    // Detach — don't await the child
-    drop(child);
+    // Reap the child in the background so a dead CloakBrowser never stays a
+    // zombie (Linux) and its FDs are released. The browser itself keeps
+    // running — wait() only resolves after it exits.
+    tokio::spawn(async move {
+      let mut child = child;
+      let _ = child.wait().await;
+    });
 
     let instance_id = uuid::Uuid::new_v4().to_string();
     let result = CloakLaunchResult {
@@ -293,6 +301,32 @@ impl CloakManager {
       }
     }
     Ok(())
+  }
+
+  /// Drop bookkeeping for browsers that already exited, so `instances`
+  /// doesn't grow unboundedly across launches (memory leak).
+  pub async fn cleanup_dead_instances(&self) {
+    use sysinfo::{ProcessRefreshKind, RefreshKind, System};
+
+    let mut inner = self.inner.lock().await;
+    let system = System::new_with_specifics(
+      RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
+    );
+    let dead: Vec<String> = inner
+      .instances
+      .iter()
+      .filter(|(_, inst)| match inst.process_id {
+        Some(pid) => !system
+          .processes()
+          .contains_key(&sysinfo::Pid::from_u32(pid)),
+        None => true,
+      })
+      .map(|(id, _)| id.clone())
+      .collect();
+    for id in dead {
+      log::info!("Cleaning up dead Cloak instance: {id}");
+      inner.instances.remove(&id);
+    }
   }
 
   #[allow(dead_code)]

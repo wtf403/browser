@@ -370,7 +370,9 @@ export function ProfileInfoDialog({
       },
       disabled: isDisabled || isRunning,
       proBadge: false,
-      hidden: profile.browser !== "wayfern" || !onLaunchWithSync,
+      hidden:
+        (profile.browser !== "cloak" && profile.browser !== "wayfern") ||
+        !onLaunchWithSync,
     },
     {
       id: "cookiesCopy",

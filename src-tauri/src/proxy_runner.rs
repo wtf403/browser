@@ -239,7 +239,7 @@ pub async fn start_proxy_process_with_profile(
     }
 
     // Spawn detached process
-    let child = cmd.spawn()?;
+    let mut child = cmd.spawn()?;
     let pid = child.id();
 
     // Store PID
@@ -253,8 +253,11 @@ pub async fn start_proxy_process_with_profile(
     config_with_pid.pid = Some(pid);
     save_proxy_config(&config_with_pid)?;
 
-    // Don't wait for the child - it's detached
-    drop(child);
+    // Reap the child on exit so it never stays a zombie (Unix) — the worker
+    // itself keeps running detached; wait() only resolves after it exits.
+    std::thread::spawn(move || {
+      let _ = child.wait();
+    });
   }
 
   #[cfg(windows)]
@@ -304,7 +307,7 @@ pub async fn start_proxy_process_with_profile(
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
     cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
 
-    let child = cmd.spawn()?;
+    let mut child = cmd.spawn()?;
     let pid = child.id();
 
     // Set high priority so the proxy is killed last under resource pressure
@@ -326,7 +329,10 @@ pub async fn start_proxy_process_with_profile(
     config_with_pid.pid = Some(pid);
     save_proxy_config(&config_with_pid)?;
 
-    drop(child);
+    // Reap on exit so no zombie/handle is left behind (see Unix block above).
+    std::thread::spawn(move || {
+      let _ = child.wait();
+    });
   }
 
   // Give the process a moment to start up before checking

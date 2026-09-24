@@ -65,7 +65,7 @@ export function SyncFollowerDialog({
   const eligibleProfiles = allProfiles.filter(
     (p) =>
       p.id !== leaderProfile?.id &&
-      p.browser === "wayfern" &&
+      (p.browser === "cloak" || p.browser === "wayfern") &&
       !runningProfiles.has(p.id) &&
       !isCrossOsProfile(p),
   );

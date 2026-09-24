@@ -2365,6 +2365,12 @@ mod tests {
       "set_extension_group_sync_enabled",
       "generate_sample_fingerprint",
       "lock_profile",
+      // Used via REST/MCP backends, not the Tauri frontend:
+      // update_cloak_config (api_server + mcp_server), geoip commands
+      // (downloader + registry auto-fetch).
+      "update_cloak_config",
+      "is_geoip_database_available",
+      "download_geoip_database",
     ];
 
     // Extract command names from the generate_handler! macro in this file
