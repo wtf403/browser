@@ -723,23 +723,13 @@ impl Extractor {
     log::info!("Extracting tar.xz archive: {}", tar_path.display());
     std::fs::create_dir_all(dest_dir)?;
 
+    // Stream through the xz decoder straight into tar unpack: constant
+    // memory regardless of archive size. (The old code read the whole file
+    // into RAM twice — compressed + decompressed — OOM-killing the app on
+    // ~1GB browser archives.)
     let file = File::open(tar_path)?;
-    let mut buf_reader = BufReader::new(file);
-
-    // Read the entire file into memory for lzma-rs
-    let mut compressed_data = Vec::new();
-    buf_reader.read_to_end(&mut compressed_data)?;
-
-    // Decompress using lzma-rs
-    let mut decompressed_data = Vec::new();
-    lzma_rs::xz_decompress(
-      &mut std::io::Cursor::new(compressed_data),
-      &mut decompressed_data,
-    )?;
-
-    // Create tar archive from decompressed data
-    let cursor = std::io::Cursor::new(decompressed_data);
-    let mut archive = tar::Archive::new(cursor);
+    let xz_decoder = xz2::read::XzDecoder::new(BufReader::new(file));
+    let mut archive = tar::Archive::new(xz_decoder);
 
     archive.unpack(dest_dir)?;
 

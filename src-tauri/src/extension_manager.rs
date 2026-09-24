@@ -1079,17 +1079,16 @@ impl ExtensionManager {
     src: &std::path::Path,
     dest: &std::path::Path,
   ) -> Result<(), Box<dyn std::error::Error>> {
-    let data = fs::read(src)?;
-    let mut archive = match zip::ZipArchive::new(std::io::Cursor::new(data.as_slice())) {
+    // Open from disk with random access instead of reading the whole file
+    // into RAM. CRX files have a header before the ZIP data — locate the ZIP
+    // magic with a bounded streaming scan and seek past the header.
+    let mut archive = match Self::open_zip_at(src, 0) {
       Ok(a) => a,
-      Err(e) => {
-        // CRX files have a header before the ZIP data — try skipping the CRX header
-        if let Some(zip_start) = Self::find_zip_start(&data) {
-          zip::ZipArchive::new(std::io::Cursor::new(&data[zip_start..]))
-            .map_err(|e2| format!("Failed to open CRX as zip after header skip: {e2}"))?
-        } else {
-          return Err(format!("Failed to open as zip: {e}").into());
-        }
+      Err(_) => {
+        let zip_start =
+          Self::find_zip_start_in_file(src)?.ok_or("Failed to open as zip: not a ZIP archive")?;
+        Self::open_zip_at(src, zip_start)
+          .map_err(|e| format!("Failed to open CRX as zip after header skip: {e}"))?
       }
     };
     // Zip-bomb guard: cap entries + total unpacked bytes (Linux disk/RAM).
@@ -1126,10 +1125,43 @@ impl ExtensionManager {
     Ok(())
   }
 
-  fn find_zip_start(data: &[u8]) -> Option<usize> {
-    // ZIP local file header magic: PK\x03\x04
-    let magic = [0x50, 0x4B, 0x03, 0x04];
-    data.windows(4).position(|window| window == magic)
+  fn open_zip_at(
+    src: &std::path::Path,
+    offset: u64,
+  ) -> zip::result::ZipResult<zip::ZipArchive<std::io::BufReader<fs::File>>> {
+    use std::io::Seek;
+    let mut raw = fs::File::open(src)?;
+    raw.seek(std::io::SeekFrom::Start(offset))?;
+    zip::ZipArchive::new(std::io::BufReader::new(raw))
+  }
+
+  /// Streaming scan for the ZIP magic without loading the file into RAM
+  /// (constant ~1 MiB buffer). Used to skip CRX headers.
+  fn find_zip_start_in_file(
+    src: &std::path::Path,
+  ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    use std::io::Read;
+    const MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
+    const CHUNK: usize = 1024 * 1024;
+    let mut file = fs::File::open(src)?;
+    let mut buf = vec![0u8; CHUNK + 3];
+    let mut base: u64 = 0;
+    let mut carry = 0usize;
+    loop {
+      let n = file.read(&mut buf[carry..carry + CHUNK])?;
+      if n == 0 {
+        return Ok(None);
+      }
+      let total = carry + n;
+      if let Some(pos) = buf[..total].windows(4).position(|w| w == MAGIC) {
+        return Ok(Some(base - carry as u64 + pos as u64));
+      }
+      // Keep the last bytes for matches spanning chunk boundaries.
+      let keep = total.min(3);
+      buf.copy_within(total - keep..total, 0);
+      base += n as u64;
+      carry = keep;
+    }
   }
 
   pub fn ensure_icons_extracted(&self) {
@@ -1842,15 +1874,38 @@ mod tests {
   }
 
   #[test]
-  fn test_find_zip_start() {
-    let data = vec![0x00, 0x00, 0x50, 0x4B, 0x03, 0x04, 0xFF];
-    assert_eq!(ExtensionManager::find_zip_start(&data), Some(2));
+  fn test_find_zip_start_in_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("probe.bin");
+    std::fs::write(&path, [0x00, 0x00, 0x50, 0x4B, 0x03, 0x04, 0xFF]).unwrap();
+    assert_eq!(
+      ExtensionManager::find_zip_start_in_file(&path).unwrap(),
+      Some(2)
+    );
 
-    let data = vec![0x50, 0x4B, 0x03, 0x04, 0xFF];
-    assert_eq!(ExtensionManager::find_zip_start(&data), Some(0));
+    std::fs::write(&path, [0x50, 0x4B, 0x03, 0x04, 0xFF]).unwrap();
+    assert_eq!(
+      ExtensionManager::find_zip_start_in_file(&path).unwrap(),
+      Some(0)
+    );
 
-    let data = vec![0x00, 0x00, 0x00];
-    assert_eq!(ExtensionManager::find_zip_start(&data), None);
+    std::fs::write(&path, [0x00, 0x00, 0x00]).unwrap();
+    assert_eq!(
+      ExtensionManager::find_zip_start_in_file(&path).unwrap(),
+      None
+    );
+
+    // Magic split across the 1 MiB chunk boundary.
+    let mut big = vec![0xAAu8; 1024 * 1024 + 3];
+    big[1024 * 1024 - 1] = 0x50;
+    big[1024 * 1024] = 0x4B;
+    big[1024 * 1024 + 1] = 0x03;
+    big[1024 * 1024 + 2] = 0x04;
+    std::fs::write(&path, &big).unwrap();
+    assert_eq!(
+      ExtensionManager::find_zip_start_in_file(&path).unwrap(),
+      Some(1024 * 1024 - 1)
+    );
   }
 
   #[test]

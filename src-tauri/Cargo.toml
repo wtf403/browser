@@ -60,6 +60,7 @@ tar = "0"
 bzip2 = "0"
 flate2 = "1"
 lzma-rs = "0"
+xz2 = "0.1"
 msi-extract = "0"
 
 uuid = { version = "1.23", features = ["v4", "serde"] }
