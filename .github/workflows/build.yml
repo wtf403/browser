@@ -53,18 +53,18 @@ jobs:
           fi
         shell: bash
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.should_run.outputs.run == 'true'
 
       - name: Setup pnpm
         if: steps.should_run.outputs.run == 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           run_install: false
 
       - name: Setup Node.js
         if: steps.should_run.outputs.run == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: "pnpm"
@@ -127,14 +127,14 @@ jobs:
 
       - name: Build Tauri app
         if: steps.should_run.outputs.run == 'true'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         with:
           projectPath: ./src-tauri
           args: ${{ matrix.args }}
 
       - name: Upload artifacts
         if: steps.should_run.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.platform }}-${{ matrix.target }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/
